@@ -133,7 +133,7 @@ object GeminiServiceClient {
     private const val TAG = "GeminiServiceClient"
     private const val MODEL = "gemini-3.5-flash"
     private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
-    private const val LOCAL_BACKEND_URL = "http://10.0.2.2:8000/api/v1/scan"
+    private val LOCAL_BACKEND_URL = "http://${BuildConfig.LOCAL_BACKEND_IP}:8000/api/v1/scan"
     
     var useLocalBackend: Boolean = true
     var lastApiError: String? = null

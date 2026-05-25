@@ -6,9 +6,18 @@ plugins {
   alias(libs.plugins.secrets)
 }
 
+val configFile = rootProject.file("network_config.json")
+val backendIp = if (configFile.exists()) {
+    val text = configFile.readText()
+    val match = Regex("\"LOCAL_BACKEND_IP\"\\s*:\\s*\"([^\"]+)\"").find(text)
+    match?.groupValues?.get(1) ?: "10.0.2.2"
+} else {
+    "10.0.2.2"
+}
+
 android {
   namespace = "com.example"
-  compileSdk { version = release(36) { minorApiLevel = 1 } }
+  compileSdk = 36 // Cleaned up syntax for standard gradle build
 
   defaultConfig {
     applicationId = "com.aistudio.smartgrocery.vpkqwb"
@@ -17,6 +26,7 @@ android {
     versionCode = 1
     versionName = "1.0"
 
+    buildConfigField("String", "LOCAL_BACKEND_IP", "\"$backendIp\"")
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
 

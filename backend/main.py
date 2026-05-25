@@ -1,3 +1,5 @@
+import os
+import json
 import uvicorn
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,13 +21,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def get_configured_ip() -> str:
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "network_config.json")
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f).get("LOCAL_BACKEND_IP", "0.0.0.0")
+        except:
+            pass
+    return "0.0.0.0"
+
 @app.get("/")
 def read_root():
     return {
         "status": "active",
         "service": "SmartGrocery Manager Backend API Engine",
         "version": "1.0.0",
-        "docs_url": "/docs"
+        "docs_url": "/docs",
+        "lan_ip": get_configured_ip()
     }
 
 @app.post("/api/v1/scan", response_model=ParsingReceiptResult, status_code=status.HTTP_200_OK)
