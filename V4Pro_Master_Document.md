@@ -197,3 +197,82 @@ Nelle spese tradizionali di rione (panificio, macelleria, fruttivendolo rionale)
 1.  **Fase 1 (Pianificazione Silenziosa)**: L'algoritmo predittivo colora in rosso il Latte (Daily Need). L'utente digita `"Fet"`, lo Smart-Lookup autocompila `"Fette Biscottate Misura"` (3-Strikes Rule). L'app valuta il Costo Opportunità e suggerisce il supermercato Y come tappa unica.
 2.  **Fase 2 (Acquisto Offline)**: L'utente si reca fisicamente al supermercato Y. L'applicazione va offline. Utilizza la scorciatoia sul Widget per inquadrare con l'AR l'etichetta di un nuovo caffè in offerta (l'Auto-Trigger cattura lo scatto nitido non appena rileva la stabilità e la presenza dei prezzi). Lo aggiunge alla lista. Nota sul display che le fette biscottate mostrano un prezzo rosso superiore rispetto alla media storica e decide di non acquistarle.
 3.  **Fase 3 (Sospensione e Sincronizzazione)**: L'utente paga ed esce. Il geofence rileva l'allontanamento e notifica: `"Vuoi caricare lo scontrino?"`. Avendo le mani occupate, l'utente clicca `"DOPO"`. Lo scontrino finisce nella coda `"Scontrini in sospeso"`. Al ripescaggio del segnale di rete, la lista sul server si aggiorna via WebSocket. A casa, l'utente estrapola lo scontrino in sospeso, avvia lo scan batch, l'OCR decodifica gli articoli correlando le stringhe con Jaro-Winkler e lo Smart-Split separa le spese private da quelle di cassa, chiudendo il cerchio contabile domestico in totale sicurezza.
+
+---
+
+## 11. Stato dell'Arte Corrente e Piano di Transizione ad Architettura Ibrida
+
+Il sistema è attualmente configurato con un'architettura transitoria scalabile, pronta per evolvere verso una piattaforma enterprise decentralizzata. Di seguito sono dettagliati lo stato corrente implementato e le specifiche tecniche della futura infrastruttura back-end.
+
+### 11.1 Stato di Implementazione Attuale (Client-Side)
+L'applicazione SmartGrocery Manager adotta una solida logica di elaborazione locale assistita da API generative basandosi sulle seguenti soluzioni software:
+1.  **OCR Locale (Google ML Kit)**: L'applicazione esegue l'acquisizione dello scontrino in locale sul dispositivo dell'utente ed elabora il rilevamento del testo tramite il motore on-device di *Google ML Kit*. Questo garantisce il funzionamento offline e l'assenza di invii pesanti di file multimediali sulla rete.
+2.  **Cloud Parsing Transitorio (Gemini 3.5 Flash)**: Il testo strutturato risultante dall'OCR viene convogliato al client interno del dispositivo (`GeminiServiceClient` in `GeminiService.kt`) che lo invia alla famiglia di modelli di default `gemini-3.5-flash` per la scomposizione semantica e la categorizzazione in formato JSON rigido.
+3.  **Algoritmo di Riconciliazione e Deduplica (`GroceryViewModel.kt`)**: Al caricamento di un nuovo scontrino, il sistema interroga l'archivio locale per rilevare transazioni potenzialmente duplicate (stesso totale e stessa data d'acquisto). Invece di chiedere genericamente all'utente di sovrascrivere o eliminare la transazione precedente, l'algoritmo effettua una comparazione approfondita:
+    *   **Confronto Semantico-Fiscale (`areItemListsSubstantiallySame`)**: Converte i set di articoli in liste ordinate per nome (lowercase/trimmed) e confronta i prezzi al livello di decimali e tolleranza ($|prezzo_A - prezzo_B| > 0.01$).
+    *   **UX Condizionale (`ScannerScreen.kt` + `showItemsList`)**: Se gli scontrini corrispondono in cifre totali ma contengono articoli differenti (`hasDifferentItemsFromDuplicate == true`), l'interfaccia mostra all'utente l'elenco dei singoli elementi scansionati per consentire di aggiornare e integrare i prodotti del scontrino preesistente. Se gli elementi corrispondono interamente, il sistema accelera l'esperienza offrendo un flusso di unione diretto senza visualizzazioni superflue.
+
+### 11.2 Piano Architetturale: Sistema Ibrido Android-Python-Llama3
+Per abbattere i costi delle API Cloud a consumo (pay-per-token), mantenere un controllo totale sulla privacy e unificare la logica di business e la sincronizzazione globale degli account, l'architettura migrerà verso una configurazione ibrida Client-Server ad alte prestazioni.
+
+```
++-------------------------------------+
+| Android App (Client-Side)           |
+| 1. ML Kit -> OCR Testo              |
+| 2. Estrazione coordinate (X, Y)     |
+| 3. Generazione e invio JSON Spaziale|
++------------------+------------------+
+                   |
+                   | (HTTPS Payload Leggero: No JPG/PNG)
+                   v
++------------------+------------------+
+| Python Back-end (FastAPI / Flask)   |
+| 1. Ricezione JSON Spaziale          |
+| 2. Formattazione Prompt Line-by-Line|
++------------------+------------------+
+                   |
+                   | (Host Local / Unix Socket)
+                   v
++------------------+------------------+
+| On-Premise LLM Engine (Llama 3)     |
+| 1. Interpretazione allineamenti     |
+| 2. Estrazione Entità e Metadati     |
+| 3. Generazione Strutturata JSON     |
++-------------------------------------+
+```
+
+#### A. Acquisizione e Pre-elaborazione (Client-Side - Android)
+*   Anziché inviare file d'immagine pesanti (es. foto scattate a 12 Megapixel con peso superiore a 5MB):
+*   L'applicazione Android esegue la rilevazione dei blocchi testuali tramite **Google ML Kit OCR** in locale.
+*   Ogni singola riga o parola rilevata viene mappata spazialmente calcolandone le coordinate geometriche relative: il rettangolo di delimitazione Bounding Box (proprietà native di ML Kit `boundingBox: Rect`).
+*   L'app converte il tutto in un payload JSON standard compatto (dimensione media < 15KB) strutturato in nodi spaziali:
+    ```json
+    {
+      "metadata": { "imageWidth": 1080, "imageHeight": 2400 },
+      "elements": [
+        { "text": "BIRRA MENABREA 66CL", "x": 45, "y": 280, "w": 400, "h": 35 },
+        { "text": "1.89", "x": 890, "y": 280, "w": 80, "h": 35 }
+      ]
+    }
+    ```
+*   **Vantaggio cost/efficiency**: Zero consumo di banda cellulare e latenza di caricamento istantanea.
+
+#### B. Back-end Server-Side in Python (FastAPI o Flask)
+La scelta d'elezione per lo sviluppo del back-end è un servizio web **FastAPI** scritto in Python per i seguenti vantaggi:
+1.  **Asincronia Nativa (ASGI)**: Consente di gestire contemporaneamente migliaia di richieste di scansione concorrenti e comunicazioni WebSocket real-time con minima impronta di memoria.
+2.  **Validazione Rigida (Pydantic)**: Consente la definizione di schemi di input e output sicuri a compile-time e runtime, rifiutando richieste strutturate male.
+3.  **Auto-Documentazione OpenAPI (Swagger)**: Esposizione nativa dell'UI di test del backend, azzerando i disallineamenti di contratto tra sviluppatori client e server.
+
+#### C. Intelligenza Semantica e Spaziale (Llama 3 On-Premise)
+Il server Python riceve il JSON spaziale e lo elabora per generare il prompt contestuale per **Llama 3** (es. servito via Ollama, vLLM, o API locali dedicate):
+*   **Gestione dell'allineamento spaziale**: L'algoritmo del back-end può raggruppare i blocchi di testo che condividono la stessa coordinata $y$ (allineandoli orizzontalmente) per ricreare fedelmente le colonne dello scontrino (es. Associando `"BIRRA MENABREA"` con `"1.89"`).
+*   **Strutturazione tramite Llama 3**: Llama 3 riceve il testo ordinato e le indicazioni spaziali ed esegue un'estrazione deterministica in formato JSON strutturato, comprendendo le abbreviazioni del supermercato ed effettuando le seguenti mappature:
+    *   **Dati Punto Vendita**: Nome catena (es. "Coop"), Indirizzo esatto (via, città, CAP), Partita IVA (PIVA), contatti telefonici.
+    *   **Line-Item Merceologia**: Descrizione "esplosa" (es. `"PR CR S.DAN"` diviene `"Prosciutto Crudo San Daniele"`), categorizzazione merceologica (es. `"Salumi"`), marca riconosciuta.
+    *   **Metatesto Quantitativo**: Rilevazione del peso o volume (es. gr, cl, litri), prezzo al chilogrammo/litro, quantità acquistate e unità base.
+    *   **Contabilità & Budget**: Aliquote IVA per singola riga di spesa, sconti assoluti o percentuali, totale complessivo pagato, timestamp completo.
+
+#### D. Risultati e Vantaggi Strategici del Systema Ibrido
+*   **Economia di Esercizio**: Raggiungimento di costo marginale **pari a zero** per l'inferenza LLM. Nessun pedaggio a consumo a OpenAI o Google su base mensile.
+*   **Privacy & Sovranità dei Dati**: Trattandosi di un'instanza locale o privata self-hosted Llama 3, nessun dettaglio sugli acquisti del nucleo familiare (abitudini alimentari, brand preferiti, orari di spesa) viene esposto a player pubblicitari terzi.
+*   **Accuratezza Elevata**: Il modello neurale di Llama 3 è in grado di correggere asincronamente sfasamenti di riga causati da pieghe del scontrino o imperfezioni della fotocamera, interpretando il contesto del documento per inferire i decimali mancanti.
