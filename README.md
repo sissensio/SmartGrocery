@@ -40,13 +40,40 @@ Le attività di sviluppo sono pianificate in 5 macro-fasi sequenziali, descritte
 
 ---
 
-## 4. Come Eseguire il Progetto in Locale (Run Locally)
+## 4. Come Compilare e Sviluppare (Android)
 
-### Prerequisiti
-*   [Android Studio](https://developer.android.com/studio) installato.
-*   (Opzionale per sviluppo transitorio) Una chiave API di Gemini se desideri testare il fallback provvisorio sul client.
+L'applicazione è sviluppata in **Kotlin** sfruttando **Jetpack Compose** per l'interfaccia utente dichiarativa e **Material Design 3 (M3)** per lo stile e i componenti visuali.
 
-### Istruzioni
+### Requisiti
+*   **Android Studio** (versione Koala o superiore consigliata)
+*   **Java Development Kit (JDK)**: JDK 17
+*   **Gradle**: Kotlin DSL (`.gradle.kts`)
+
+### Comandi Gradle Comuni (da riga di comando)
+*Nota: si raccomanda l'uso di `gradle` standard senza wrapper locale.*
+
+*   **Compila l'applicazione**:
+    ```bash
+    gradle assembleDebug
+    ```
+*   **Esegui i Test Unitari e Robolectric**:
+    ```bash
+    gradle :app:testDebugUnitTest
+    ```
+*   **Verifica i Test di Screenshot (Roborazzi)**:
+    ```bash
+    gradle :app:verifyRoborazziDebug
+    ```
+*   **Registra nuovi Screenshot di riferimento**:
+    ```bash
+    gradle :app:recordRoborazziDebug
+    ```
+
+---
+
+## 5. Come Eseguire il Progetto in Locale (Run Locally)
+
+### Istruzioni di Avvio Rapido
 1.  Apri **Android Studio**.
 2.  Seleziona **Open** e scegli la cartella principale contenente questo progetto.
 3.  Attendi che Gradle importi il progetto e consenti ad Android Studio di risolvere eventuali incompatibilità.
@@ -54,3 +81,11 @@ Le attività di sviluppo sono pianificate in 5 macro-fasi sequenziali, descritte
 5.  Rimuovi la seguente riga dal file `build.gradle.kts` dell'app per abilitare la firma di debug sul tuo emulatore:
     `signingConfig = signingConfigs.getByName("debugConfig")`
 6.  Avvia l'app su un emulatore o su un dispositivo Android fisico collegato.
+
+---
+
+## 6. Configurazione dei Segreti
+
+Le chiavi API sensibili (come la chiave transitoria `GEMINI_API_KEY` usata per il parsing provvisorio via Gemini 3.5 Flash) sono iniettate tramite il Gradle Secrets Plugin.
+1.  Inserisci i tuoi segreti personali direttamente nel pannello **Secrets** di Google AI Studio.
+2.  In locale (durante l'esportazione su Android Studio), i parametri verranno caricati tramite file `.env` senza mai esporre o hardcodare le chiavi nel codice sorgente o nei file di configurazione controllati da Git.
