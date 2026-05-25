@@ -1,0 +1,6 @@
+{
+  "name": "SmartGrocery",
+  "description": "Smart grocery manager featuring OCR receipts capture, shelf pricing tracking, predictive shopping lists, geofencing queues, and shared budget split calculations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
