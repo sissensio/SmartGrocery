@@ -16,17 +16,3 @@
 local.properties
 .env
 debug.keystore
-
-# Python-specific ignores
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.venv/
-venv/
-ENV/
-.pytest_cache/
-
-# SQLite ignores
-*.db
-*.db-journal
