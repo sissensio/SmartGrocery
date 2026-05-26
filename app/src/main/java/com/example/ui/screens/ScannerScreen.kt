@@ -56,6 +56,7 @@ import com.example.ui.theme.SemanticGreen
 import com.example.ui.theme.SemanticRed
 import com.example.ui.theme.SemanticYellow
 import com.example.ui.viewmodel.GroceryViewModel
+import com.example.api.OcrElementDto
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -2064,7 +2065,26 @@ fun FullScreenCameraOverlay(
                                         val textResult = visionText.text
                                         if (cameraScanTarget == "SCONTRINO") {
                                             val store = activeCameraStoreName.ifBlank { "Supermercato" }
-                                            viewModel.completeCameraReceiptScan(store, textResult.split("\n"))
+                                            
+                                            // Extract OcrElementDto with coordinates to enable horizontal alignment reconstruction
+                                            val elementsList = mutableListOf<OcrElementDto>()
+                                            for (block in visionText.textBlocks) {
+                                                for (line in block.lines) {
+                                                    val box = line.boundingBox
+                                                    if (box != null) {
+                                                        elementsList.add(
+                                                            OcrElementDto(
+                                                                text = line.text,
+                                                                x = box.left.toDouble(),
+                                                                y = box.top.toDouble(),
+                                                                width = box.width().toDouble(),
+                                                                height = box.height().toDouble()
+                                                            )
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            viewModel.completeCameraReceiptScan(store, textResult.split("\n"), elementsList)
                                         } else {
                                             val textLines = textResult.split("\n")
                                             var priceFound = 0.99

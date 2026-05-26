@@ -6,6 +6,18 @@ plugins {
   alias(libs.plugins.secrets)
 }
 
+val networkConfigFile = rootProject.file("network_config.json")
+var localBackendIp = "10.0.2.2" // standard Android emulator loopback fallback
+if (networkConfigFile.exists()) {
+    try {
+        val parsed = groovy.json.JsonSlurper().parseText(networkConfigFile.readText()) as Map<*, *>
+        localBackendIp = parsed["LOCAL_BACKEND_IP"] as String
+        logger.lifecycle("--- Gradle Build: Found LOCAL_BACKEND_IP in network_config.json ($localBackendIp) ---")
+    } catch (e: Exception) {
+        logger.lifecycle("--- Gradle Build: Failed to parse network_config.json: ${e.message} ---")
+    }
+}
+
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
@@ -16,6 +28,8 @@ android {
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
+
+    buildConfigField("String", "LOCAL_BACKEND_IP", "\"$localBackendIp\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

@@ -5,6 +5,8 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.api.GeminiServiceClient
+import com.example.api.LocalBackendServiceClient
+import com.example.api.OcrElementDto
 import com.example.api.ParsedItem
 import com.example.api.ParsingReceiptResult
 import com.example.data.*
@@ -1185,7 +1187,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // Execute real Gemini-assisted parse OCR (Section 4 & 5)
-    fun processScanningWithGemini(ocrRawText: String) {
+    fun processScanningWithGemini(ocrRawText: String, elements: List<OcrElementDto>? = null) {
         viewModelScope.launch {
             isProcessingScan.value = true
             scanError.value = null
@@ -1232,23 +1234,39 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                     return@launch
                 }
 
-                // 3. Online mode: Check if Gemini API is configured
-                if (!GeminiServiceClient.isKeyConfigured()) {
-                    cancelScannerPreview()
-                    scanError.value = "Il servizio Cloud AI non è configurato. Per utilizzare l'elaborazione Cloud ufficiale con il tuo Account Google, inserisci la tua chiave API nel pannello dei Segreti (Secrets) situato sulla destra dell'interfaccia di Google AI Studio usando il nome 'GEMINI_API_KEY'. In alternativa, puoi attivare la diagnostica locale dalle impostazioni dello scanner per verificare se è presente IA on-device."
-                    return@launch
+                // 3. Online/LAN mode: check if local server is preferred or if Cloud is unconfigured
+                val useLocalServer = LocalBackendServiceClient.isHostConfigured() && (!GeminiServiceClient.isKeyConfigured() || !isOfflineMode.value)
+                
+                val parsedResult = if (useLocalServer) {
+                    // Try processing via local on-premise FastAPI backend
+                    simulateWebSocketNotification("Local Backend Server: Allineamento e parsing in corso...")
+                    val res = LocalBackendServiceClient.scanReceipt(textToParse, elements)
+                    if (res == null) {
+                        cancelScannerPreview()
+                        val details = LocalBackendServiceClient.lastApiError ?: "Server offline o spento."
+                        scanError.value = "Scansione fallita sul server locale.\nDettagli errore: $details\n\nVerifica che il server FastAPI sia attivo al percorso http://${com.example.BuildConfig.LOCAL_BACKEND_IP}:8000/api/v1/scan ed accessibile sulla stessa rete LAN."
+                        return@launch
+                    }
+                    res
+                } else {
+                    // Standard Gemini Cloud API call
+                    if (!GeminiServiceClient.isKeyConfigured()) {
+                        cancelScannerPreview()
+                        scanError.value = "Il servizio Cloud AI non è configurato. Per utilizzare l'elaborazione Cloud ufficiale con il tuo Account Google, inserisci la tua chiave API nel pannello dei Segreti (Secrets) situato sulla destra dell'interfaccia di Google AI Studio usando il nome 'GEMINI_API_KEY'. In alternativa, puoi attivare la diagnostica locale dalle impostazioni dello scanner per verificare se è presente IA on-device."
+                        return@launch
+                    }
+                    
+                    val res = GeminiServiceClient.parseReceiptText(textToParse)
+                    if (res == null) {
+                        cancelScannerPreview()
+                        val details = GeminiServiceClient.lastApiError ?: "Errore di connessione o risposta vuota."
+                        scanError.value = "Scansione fallita nell'AI in Cloud.\nDettagli errore: $details\n\nAssicurati che la chiave GEMINI_API_KEY nei Segreti sia corretta, attiva e abilitata per l'accesso API, oppure controlla la tua connessione."
+                        return@launch
+                    }
+                    res
                 }
 
-                // 4. Try cloud-based Gemini parsing
-                val parsedResult = GeminiServiceClient.parseReceiptText(textToParse)
-                if (parsedResult == null) {
-                    cancelScannerPreview()
-                    val details = GeminiServiceClient.lastApiError ?: "Errore di connessione o risposta vuota."
-                    scanError.value = "Scansione fallita nell'AI in Cloud.\nDettagli errore: $details\n\nAssicurati che la chiave GEMINI_API_KEY nei Segreti sia corretta, attiva e abilitata per l'accesso API, oppure controlla la tua connessione."
-                    return@launch
-                }
-
-                // 5. Successful real Gemini Cloud API parsing!
+                // 5. Successful parsing!
                 val dateTs = calculateReceiptTimestamp(parsedResult, textToParse)
 
                 checkForReconciliation(
@@ -1260,7 +1278,11 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                     newAddress = parsedResult.address,
                     newPhone = parsedResult.phone
                 )
-                simulateWebSocketNotification("Gemini Cloud AI: Scansione scontrino elaborata online.")
+                if (useLocalServer) {
+                    simulateWebSocketNotification("Local Backend: Scansione scontrino elaborata offline tramite Llama 3.")
+                } else {
+                    simulateWebSocketNotification("Gemini Cloud AI: Scansione scontrino elaborata online.")
+                }
 
             } catch (e: Exception) {
                 Log.e("ScannerScan", "Unhandled scan processor exception", e)
@@ -1590,11 +1612,11 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun completeCameraReceiptScan(store: String, rawLines: List<String>) {
+    fun completeCameraReceiptScan(store: String, rawLines: List<String>, elements: List<OcrElementDto>? = null) {
         viewModelScope.launch {
             // Load and parse items
             val ocrText = rawLines.joinToString("\n")
-            processScanningWithGemini(ocrText)
+            processScanningWithGemini(ocrText, elements)
             
             // Delete the related pending receipt now that acquisition is completed!
             val pending = currentlyScanningPendingReceipt.value
