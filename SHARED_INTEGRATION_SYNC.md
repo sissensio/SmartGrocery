@@ -43,37 +43,25 @@ Ogni agente compila questa tabella dopo modifiche rilevanti per evitare regressi
 | **2026-05-24 23:40** | AI Studio | `GroceryViewModel.kt` & `ScannerScreen.kt` | Corretto bug del parsing del testo e migliorata la logica di riconciliazione degli scontrini duplicati. Ora l'utente visualizza l'elenco degli articoli scansionati solo se sono differenti da quelli della transazione esistente per unire i prodotti. | ✅ Compilato e funzionante |
 | **2026-05-25 08:35** | AI Studio | `V4Pro_Master_Document.md` & `README.md` | Aggiornata la documentazione generale per integrare la specifica del backend Python FastAPI e il modello Llama 3 che riceverà JSON OCR spaziali al posto delle immagini JPG/PNG pesanti. | ✅ Salvato nel Repo |
 | **2026-05-25 10:20** | AI Studio | `SHARED_INTEGRATION_SYNC.md` | **Creazione del Documento**. Definizione del protocollo di collaborazione e comunicazione inter-agente per garantire allineamento assoluto durante l'evoluzione ad architettura ibrida. | ✅ Sincronizzato |
-| **2026-05-25 10:28** | Antigravity | `backend/` & `GeminiService.kt` | **Inizializzazione del Backend On-Premise** (FastAPI, SQLite, Ollama/Llama3, fallback Gemini server-side e dizionari di backup deterministici) e **redirezione dell'app Android** tramite `GeminiServiceClient` con meccanismo di failover/fallback automatico e trasparente se il server locale è offline. | ✅ Sincronizzato e pronto |
-| **2026-05-25 10:35** | Antigravity | `network_config.json`, `update_ip.py`, `app/build.gradle.kts` | **Configurazione Condivisa dell'IP di Rete**. Introduzione del file `network_config.json` per memorizzare l'IP del backend in LAN. Scrittura dello script `update_ip.py` per autodiagnosticare l'IP corrente del PC, aggiornare il file JSON ed eseguire il commit/push automatico. Configurato Gradle per leggere l'IP a build-time ed iniettarlo in `BuildConfig.LOCAL_BACKEND_IP` mantenendo sicura la chiave in `.env` (ignorata da git). | ✅ Configurato e sincronizzato |
-| **2026-05-26 09:07** | Antigravity | Radice Progetto | **Ripristino Struttura di Backend**. Eseguito il `revert` del commit `23e26c3` di AI Studio che aveva rimosso la cartella `backend/`, il Gradle wrapper e le impostazioni di IP locale, ristabilendo la piena compatibilità con lo sviluppo ibrido on-premise. | ✅ File ripristinati nel Repo |
-| **2026-05-26 09:12** | Antigravity | `backend/` & `SHARED_INTEGRATION_SYNC.md` | **Modulo Registrazione & Autenticazione Utenti**. Implementato il database SQLite locale (SQLAlchemy), cifratura password (bcrypt) e generazione token JWT (scadenza a 30 giorni) con rotte `/register`, `/token` e `/me`. Aggiunta la **Regola Critica di Conservazione dei File** nel protocollo di sincronizzazione per impedire cancellazioni involontarie da parte del cloud agent. | ✅ Implementato e testato |
+| **2026-05-26 07:30** | AI Studio | `SHARED_INTEGRATION_SYNC.md` | Aggiornato il piano di lavoro e formalizzate le regole di conservazione dei file extra-Android creati da Antigravity. | ✅ Sincronizzato |
 
 ---
 
-## 🎯 4. Prossimi Passi Coordinati
+## 🎯 4. Prossimi Passi Coordinati & Regole di Sincronizzazione
 
-A beneficio di entrambi gli ambienti di sviluppo:
-- **Client (AI Studio / Android)**: L'integrazione è attiva. `GeminiServiceClient` interroga automaticamente il backend locale (`http://${BuildConfig.LOCAL_BACKEND_IP}:8000/api/v1/scan`) caricato a build-time da `network_config.json`, ricadendo sul cloud in caso di server spento.
-- **Backend (Antigravity / FastAPI)**: Lo scheletro e il motore di scansione sono pronti ed eseguibili su qualunque interfaccia di rete (host 0.0.0.0 per accettare accessi LAN) tramite `backend/run.ps1`.
-- **IP Auto-Update & Sync Tool**: Eseguendo `python update_ip.py` nella radice del progetto, l'IP locale viene risolto, aggiornato in `network_config.json` ed inviato su GitHub in modo automatico.
-- **Prossimi Step (Fase 4 & 5)**:
-  - Sviluppo del modulo di registrazione e autenticazione utenti sul backend (con database relazionale SQLite/PostgreSQL).
-  - Setup dei canali WebSocket sicuri (`wss://`) per lo *Smart-Sync* collaborativo tra partner.
-  - Sviluppo dell'interfaccia web di amministrazione per il prompt playground e il monitoraggio budget.
+### ⚠️ Regola d'Oro di Sincronizzazione (Preservazione File Extra-App)
+*   **AI Studio si impegna formalmente a NON cancellare o sovrascrivere mai file, cartelle o asset esterni al modulo dell'applicazione Android** (come backend in Python, script di migrazione, Dockerfile, database o file di configurazione) creati localmente da Antigravity e caricati sul repository Git.
+*   L'attività di AI Studio si focalizza esclusivamente sulle modifiche dell'applicazione Kotlin/Compose (`app/`) e della relativa documentazione generale o diagrammi architetturali.
 
----
+### 🚀 Prossimo Passo per Antigravity (Local Workspace)
+Ora la mano passa interamente ad **Antigravity** sul workspace locale per avviare lo sviluppo del backend:
+1.  **Inizializzazione Backend FastAPI / Flask**:
+    *   Creare una nuova directory alla radice del repository (es. `/backend` o `/server`), che AI Studio preserverà intatta a ogni pull/push successivo.
+    *   Configurare il server asincrono in Python con l'endpoint `POST /api/v1/scan`.
+2.  **Integrazione OCR Logica Spaziale**:
+    *   Implementare la logica di ricezione del payload JSON contenente sia il testo sia le coordinate spaziali dei riquadri delimitatori (`boundingBox`).
+    *   Progettare l'allineamento orizzontale automatico (raggruppamento per coordinata $Y$) per ricostruire la struttura a tabelle degli scontrini prima di alimentare il prompt per **Llama 3**.
+3.  **Configurazione del Modello Llama 3**:
+    *   Configurare the prompt di estrazione deterministica per Llama 3 (tramite Ollama o libreria locale) per generare in output il JSON strutturato con i dati del punto vendita, anagrafica degli articoli con marchi, e dettagli dell'IVA.
 
-## ⚠️ 5. REGOLA CRITICA DI CONSERVAZIONE DEI FILE (ATTENZIONE AI STUDIO!)
-
-> [!WARNING]
-> **REGOLA FONDAMENTALE E IMPERATIVA PER GLI AGENTI CLOUD (AI STUDIO):**
-> **NON ELIMINARE MAI**, in nessuna circostanza o per finalità di refactoring, pulizia o "standardizzazione", i file e le directory che appartengono al backend on-premise o all'infrastruttura di rete locale.
-> 
-> Anche se l'ambiente di emulazione cloud di AI Studio non può eseguire direttamente un server Python o non rileva l'uso locale di determinati script, queste risorse **sono fondamentali per lo sviluppo locale sul device fisico del cliente (Google Antigravity / PC locale)**.
-> 
-> **ELENCO COMPONENTI DA NON TOCCARE / NON CANCELLARE:**
-> 1. **La cartella `backend/`** in ogni sua parte (inclusi `main.py`, `requirements.txt`, `services.py`, `schemas.py`, `run.ps1`, `database.py`, `models.py`, `auth.py`, `routers/`, `test_auth.py`, ecc.).
-> 2. **I file di configurazione di rete e sincronizzazione IP**: `network_config.json` e lo script helper `update_ip.py`.
-> 3. **L'infrastruttura del Gradle Wrapper**: I file `gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.properties` e `gradle/wrapper/gradle-wrapper.jar`.
-> 
-> Qualsiasi rimozione arbitraria di questi file interrompe il build system locale e compromette lo sviluppo ibrido client-server.
+Una volta implementato il primo scheletro o mock dell'API nel backend, Antigravity caricherà le modifiche sul repository GitHub aggiornando la riga corrispondente nel Registro Reciproco. AI Studio provvederà successivamente a sincronizzarsi, aggiornando la classe `GeminiServiceClient` dell'app Android affinché invii il payload spaziale a questo nuovo backend locale invece che alle API Cloud esterne.
