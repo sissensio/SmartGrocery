@@ -133,7 +133,9 @@ object GeminiServiceClient {
     private const val TAG = "GeminiServiceClient"
     private const val MODEL = "gemini-3.5-flash"
     private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
-
+    private val LOCAL_BACKEND_URL = "http://${BuildConfig.LOCAL_BACKEND_IP}:8000/api/v1/scan"
+    
+    var useLocalBackend: Boolean = true
     var lastApiError: String? = null
 
     private val moshi = Moshi.Builder()
@@ -160,6 +162,38 @@ object GeminiServiceClient {
      */
     suspend fun parseReceiptText(ocrText: String): ParsingReceiptResult? = withContext(Dispatchers.IO) {
         lastApiError = null
+
+        // Try local FastAPI backend first if enabled
+        if (useLocalBackend) {
+            try {
+                Log.d(TAG, "Attempting local backend scan parsing: $LOCAL_BACKEND_URL")
+                val scanMap = mapOf("ocrText" to ocrText)
+                val jsonPayload = moshi.adapter(Map::class.java).toJson(scanMap)
+                val request = Request.Builder()
+                    .url(LOCAL_BACKEND_URL)
+                    .post(jsonPayload.toRequestBody("application/json".toMediaType()))
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val rawResponse = response.body?.string()
+                        if (rawResponse != null) {
+                            val resultAdapter = moshi.adapter(ParsingReceiptResultJson::class.java)
+                            val parsed = resultAdapter.fromJson(rawResponse)?.toParsingReceiptResult()
+                            if (parsed != null) {
+                                Log.i(TAG, "Successfully parsed OCR text via local backend API.")
+                                return@withContext parsed
+                            }
+                        }
+                    } else {
+                        Log.w(TAG, "Local backend returned error status: ${response.code} ${response.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Local backend connection failed: ${e.localizedMessage}. Falling back to Gemini Cloud API.")
+            }
+        }
+
+        // Gemini Cloud API Fallback Pipeline
         if (!isKeyConfigured()) {
             Log.w(TAG, "Gemini API key is missing or is set to placeholder value. Falling back to local pattern parser.")
             lastApiError = "Chiave non configurata o valore placeholder."
