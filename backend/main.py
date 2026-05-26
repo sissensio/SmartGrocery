@@ -5,12 +5,20 @@ from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from .schemas import ScanRequest, ParsingReceiptResult
 from .services import process_ocr_scan
+from .database import engine, Base
+from .routers.auth_router import router as auth_router
+
+# Initialize SQLite database schema
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="SmartGrocery Manager On-Premise API Backend",
     version="1.0.0",
     description="In-house high-privacy OCR receipt processing server powered by local LLM models."
 )
+
+# Register routers
+app.include_router(auth_router)
 
 # Configure CORS so Android emulator and physical devices can connect seamlessly
 app.add_middleware(

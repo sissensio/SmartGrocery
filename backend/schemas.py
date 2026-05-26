@@ -25,3 +25,41 @@ class ParsingReceiptResult(BaseModel):
     phone: Optional[str] = Field(None, description="Store phone number.")
     receiptDate: Optional[str] = Field(None, description="Date of the receipt in format YYYY-MM-DD.")
     receiptTime: Optional[str] = Field(None, description="Time of the receipt in format HH:mm.")
+
+# --- Authentication & User Management Schemas ---
+from datetime import datetime
+
+class HouseholdResponse(BaseModel):
+    id: str = Field(..., description="Unique code/UUID of the household.")
+    name: str = Field(..., description="Name of the household.")
+    created_at: datetime = Field(..., description="Creation date of the household group.")
+
+    class Config:
+        from_attributes = True
+
+class UserCreate(BaseModel):
+    email: str = Field(..., description="Unique email address for registration.")
+    password: str = Field(..., description="Password in plain text (will be encrypted on database).")
+    full_name: str = Field(..., description="Full name of the user.")
+    household_name: Optional[str] = Field(None, description="Optional name to create a new household group.")
+
+class UserResponse(BaseModel):
+    id: int = Field(..., description="Database ID of the user.")
+    email: str = Field(..., description="Email address.")
+    full_name: str = Field(..., description="Full name of the user.")
+    household_id: Optional[str] = Field(None, description="Assigned household pool ID.")
+    created_at: datetime = Field(..., description="Registration timestamp.")
+
+    class Config:
+        from_attributes = True
+
+class UserLogin(BaseModel):
+    email: str = Field(..., description="Email address.")
+    password: str = Field(..., description="Plain-text password.")
+
+class Token(BaseModel):
+    access_token: str = Field(..., description="Signed JWT Bearer access token.")
+    token_type: str = Field("bearer", description="Token type, defaults to bearer.")
+
+class TokenData(BaseModel):
+    email: Optional[str] = Field(None, description="Email subject extracted from the token.")
