@@ -45,6 +45,8 @@ Ogni agente compila questa tabella dopo modifiche rilevanti per evitare regressi
 | **2026-05-25 10:20** | AI Studio | `SHARED_INTEGRATION_SYNC.md` | **Creazione del Documento**. Definizione del protocollo di collaborazione e comunicazione inter-agente per garantire allineamento assoluto durante l'evoluzione ad architettura ibrida. | ✅ Sincronizzato |
 | **2026-05-25 10:28** | Antigravity | `backend/` & `GeminiService.kt` | **Inizializzazione del Backend On-Premise** (FastAPI, SQLite, Ollama/Llama3, fallback Gemini server-side e dizionari di backup deterministici) e **redirezione dell'app Android** tramite `GeminiServiceClient` con meccanismo di failover/fallback automatico e trasparente se il server locale è offline. | ✅ Sincronizzato e pronto |
 | **2026-05-25 10:35** | Antigravity | `network_config.json`, `update_ip.py`, `app/build.gradle.kts` | **Configurazione Condivisa dell'IP di Rete**. Introduzione del file `network_config.json` per memorizzare l'IP del backend in LAN. Scrittura dello script `update_ip.py` per autodiagnosticare l'IP corrente del PC, aggiornare il file JSON ed eseguire il commit/push automatico. Configurato Gradle per leggere l'IP a build-time ed iniettarlo in `BuildConfig.LOCAL_BACKEND_IP` mantenendo sicura la chiave in `.env` (ignorata da git). | ✅ Configurato e sincronizzato |
+| **2026-05-26 09:07** | Antigravity | Radice Progetto | **Ripristino Struttura di Backend**. Eseguito il `revert` del commit `23e26c3` di AI Studio che aveva rimosso la cartella `backend/`, il Gradle wrapper e le impostazioni di IP locale, ristabilendo la piena compatibilità con lo sviluppo ibrido on-premise. | ✅ File ripristinati nel Repo |
+| **2026-05-26 09:12** | Antigravity | `backend/` & `SHARED_INTEGRATION_SYNC.md` | **Modulo Registrazione & Autenticazione Utenti**. Implementato il database SQLite locale (SQLAlchemy), cifratura password (bcrypt) e generazione token JWT (scadenza a 30 giorni) con rotte `/register`, `/token` e `/me`. Aggiunta la **Regola Critica di Conservazione dei File** nel protocollo di sincronizzazione per impedire cancellazioni involontarie da parte del cloud agent. | ✅ Implementato e testato |
 
 ---
 
@@ -58,3 +60,20 @@ A beneficio di entrambi gli ambienti di sviluppo:
   - Sviluppo del modulo di registrazione e autenticazione utenti sul backend (con database relazionale SQLite/PostgreSQL).
   - Setup dei canali WebSocket sicuri (`wss://`) per lo *Smart-Sync* collaborativo tra partner.
   - Sviluppo dell'interfaccia web di amministrazione per il prompt playground e il monitoraggio budget.
+
+---
+
+## ⚠️ 5. REGOLA CRITICA DI CONSERVAZIONE DEI FILE (ATTENZIONE AI STUDIO!)
+
+> [!WARNING]
+> **REGOLA FONDAMENTALE E IMPERATIVA PER GLI AGENTI CLOUD (AI STUDIO):**
+> **NON ELIMINARE MAI**, in nessuna circostanza o per finalità di refactoring, pulizia o "standardizzazione", i file e le directory che appartengono al backend on-premise o all'infrastruttura di rete locale.
+> 
+> Anche se l'ambiente di emulazione cloud di AI Studio non può eseguire direttamente un server Python o non rileva l'uso locale di determinati script, queste risorse **sono fondamentali per lo sviluppo locale sul device fisico del cliente (Google Antigravity / PC locale)**.
+> 
+> **ELENCO COMPONENTI DA NON TOCCARE / NON CANCELLARE:**
+> 1. **La cartella `backend/`** in ogni sua parte (inclusi `main.py`, `requirements.txt`, `services.py`, `schemas.py`, `run.ps1`, `database.py`, `models.py`, `auth.py`, `routers/`, `test_auth.py`, ecc.).
+> 2. **I file di configurazione di rete e sincronizzazione IP**: `network_config.json` e lo script helper `update_ip.py`.
+> 3. **L'infrastruttura del Gradle Wrapper**: I file `gradlew`, `gradlew.bat`, `gradle/wrapper/gradle-wrapper.properties` e `gradle/wrapper/gradle-wrapper.jar`.
+> 
+> Qualsiasi rimozione arbitraria di questi file interrompe il build system locale e compromette lo sviluppo ibrido client-server.
