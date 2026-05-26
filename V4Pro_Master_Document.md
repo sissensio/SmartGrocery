@@ -276,3 +276,22 @@ Il server Python riceve il JSON spaziale e lo elabora per generare il prompt con
 *   **Economia di Esercizio**: Raggiungimento di costo marginale **pari a zero** per l'inferenza LLM. Nessun pedaggio a consumo a OpenAI o Google su base mensile.
 *   **Privacy & Sovranità dei Dati**: Trattandosi di un'instanza locale o privata self-hosted Llama 3, nessun dettaglio sugli acquisti del nucleo familiare (abitudini alimentari, brand preferiti, orari di spesa) viene esposto a player pubblicitari terzi.
 *   **Accuratezza Elevata**: Il modello neurale di Llama 3 è in grado di correggere asincronamente sfasamenti di riga causati da pieghe del scontrino o imperfezioni della fotocamera, interpretando il contesto del documento per inferire i decimali mancanti.
+
+### 11.3 Gestione Dinamica dell'IP in Rete Locale (LAN)
+Per abilitare lo sviluppo sinergico e l'uso dell'applicazione sia su emulatore che su dispositivi fisici connessi alla stessa rete Wi-Fi (LAN), il sistema adotta un meccanismo di auto-configurazione decentralizzato:
+
+1.  **File di Configurazione Condiviso (`network_config.json`)**:
+    *   Posizionato nella radice del progetto, memorizza l'indirizzo IP del backend in formato JSON: `{"LOCAL_BACKEND_IP": "192.168.1.X"}`.
+    *   Questo file viene tracciato e sincronizzato su Git. In questo modo, modificando l'IP nel file ed effettuando il push/pull, sia AI Studio che Antigravity sono allineate all'istante.
+2.  **Risoluzione a Build-Time via Gradle**:
+    *   Il file `app/build.gradle.kts` legge `network_config.json` durante la fase di compilazione dell'applicazione Android.
+    *   Estrae l'IP tramite espressione regolare e lo inietta automaticamente all'interno di `BuildConfig.LOCAL_BACKEND_IP` come stringa nativa compilata.
+    *   Questo approccio garantisce l'isolamento della chiave privata (in `.env`, ignorato da git) e la tracciabilità delle impostazioni di rete.
+3.  **Client-Side Resolution**:
+    *   `GeminiServiceClient` in Android costruisce l'endpoint dinamico puntando a `http://${BuildConfig.LOCAL_BACKEND_IP}:8000/api/v1/scan`.
+4.  **Backend LAN Exposure**:
+    *   Il server FastAPI in `backend/main.py` è configurato per ascoltare su `host="0.0.0.0"`. Questo gli consente di accettare richieste di scansione da qualsiasi dispositivo (fisico o virtuale) collegato alla sottorete locale LAN.
+5.  **Script di Auto-Update (`update_ip.py`)**:
+    *   Uno script Python posizionato nella radice del progetto rileva l'indirizzo LAN attivo del PC host tramite una socket di routing locale.
+    *   Aggiorna automaticamente `network_config.json`, esegue il commit mirato del file su Git ed effettua il push sul ramo remoto `origin/main`, lasciando il repository pulito e sincronizzato a costo zero.
+

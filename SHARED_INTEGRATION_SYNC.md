@@ -43,11 +43,18 @@ Ogni agente compila questa tabella dopo modifiche rilevanti per evitare regressi
 | **2026-05-24 23:40** | AI Studio | `GroceryViewModel.kt` & `ScannerScreen.kt` | Corretto bug del parsing del testo e migliorata la logica di riconciliazione degli scontrini duplicati. Ora l'utente visualizza l'elenco degli articoli scansionati solo se sono differenti da quelli della transazione esistente per unire i prodotti. | ✅ Compilato e funzionante |
 | **2026-05-25 08:35** | AI Studio | `V4Pro_Master_Document.md` & `README.md` | Aggiornata la documentazione generale per integrare la specifica del backend Python FastAPI e il modello Llama 3 che riceverà JSON OCR spaziali al posto delle immagini JPG/PNG pesanti. | ✅ Salvato nel Repo |
 | **2026-05-25 10:20** | AI Studio | `SHARED_INTEGRATION_SYNC.md` | **Creazione del Documento**. Definizione del protocollo di collaborazione e comunicazione inter-agente per garantire allineamento assoluto durante l'evoluzione ad architettura ibrida. | ✅ Sincronizzato |
+| **2026-05-25 10:28** | Antigravity | `backend/` & `GeminiService.kt` | **Inizializzazione del Backend On-Premise** (FastAPI, SQLite, Ollama/Llama3, fallback Gemini server-side e dizionari di backup deterministici) e **redirezione dell'app Android** tramite `GeminiServiceClient` con meccanismo di failover/fallback automatico e trasparente se il server locale è offline. | ✅ Sincronizzato e pronto |
+| **2026-05-25 10:35** | Antigravity | `network_config.json`, `update_ip.py`, `app/build.gradle.kts` | **Configurazione Condivisa dell'IP di Rete**. Introduzione del file `network_config.json` per memorizzare l'IP del backend in LAN. Scrittura dello script `update_ip.py` per autodiagnosticare l'IP corrente del PC, aggiornare il file JSON ed eseguire il commit/push automatico. Configurato Gradle per leggere l'IP a build-time ed iniettarlo in `BuildConfig.LOCAL_BACKEND_IP` mantenendo sicura la chiave in `.env` (ignorata da git). | ✅ Configurato e sincronizzato |
 
 ---
 
 ## 🎯 4. Prossimi Passi Coordinati
 
-A beneficio di **Google Antigravity** o di chiunque riprenda il progetto localmente:
-- **Client**: `GeminiServiceClient` è temporaneamente cablato per dialogare con l'endpoint `gemini-3.5-flash:generateContent`. Nella migrazione finale, implementeremo la chiamata a `/api/v1/scan` verso il server FastAPI passandogli il payload JSON dei blocchi OCR geometrici di ML Kit.
-- **Backend (Python)**: Configurare lo scheletro di **FastAPI** con un endpoint `POST /api/v1/scan` che riceva il formato spaziale JSON illustrato in `V4Pro_Master_Document.md#112`.
+A beneficio di entrambi gli ambienti di sviluppo:
+- **Client (AI Studio / Android)**: L'integrazione è attiva. `GeminiServiceClient` interroga automaticamente il backend locale (`http://${BuildConfig.LOCAL_BACKEND_IP}:8000/api/v1/scan`) caricato a build-time da `network_config.json`, ricadendo sul cloud in caso di server spento.
+- **Backend (Antigravity / FastAPI)**: Lo scheletro e il motore di scansione sono pronti ed eseguibili su qualunque interfaccia di rete (host 0.0.0.0 per accettare accessi LAN) tramite `backend/run.ps1`.
+- **IP Auto-Update & Sync Tool**: Eseguendo `python update_ip.py` nella radice del progetto, l'IP locale viene risolto, aggiornato in `network_config.json` ed inviato su GitHub in modo automatico.
+- **Prossimi Step (Fase 4 & 5)**:
+  - Sviluppo del modulo di registrazione e autenticazione utenti sul backend (con database relazionale SQLite/PostgreSQL).
+  - Setup dei canali WebSocket sicuri (`wss://`) per lo *Smart-Sync* collaborativo tra partner.
+  - Sviluppo dell'interfaccia web di amministrazione per il prompt playground e il monitoraggio budget.
