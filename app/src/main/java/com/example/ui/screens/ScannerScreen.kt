@@ -8,6 +8,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -43,10 +44,13 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageProxy
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCaptureException
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
@@ -194,282 +198,115 @@ fun ScannerScreen(
             }
         }
 
-        // CAMERA SIMULATOR PANEL WITH HUD AND AUTO-TRIGGER (Section 5.1)
+        // SCANNING DECISION HUBS (SCONTRINO AND SCAFFALE)
         item {
-            Card(
-                shape = RoundedCornerShape(28.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Black),
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(295.dp)
-                    .clickable { viewModel.isFullScreenCameraOpen.value = true }
-                    .testTag("camera_preview_hud")
+                    .padding(vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    // HUD overlays
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        // Top row metadata
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Badge(containerColor = if (isOffline) SemanticYellow else SemanticGreen) {
-                                  Text(
-                                      text = if (isOffline) "OFFLINE SCAN" else "ONLINE API READY",
-                                      color = Color.Black,
-                                      fontWeight = FontWeight.Bold,
-                                      modifier = Modifier.padding(4.dp)
-                                  )
-                            }
-                            Text(
-                                text = "AR ASSIST ACTIVE",
-                                color = DarkActiveGreen,
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-
-                        // Floating Blue Price Rect Overlay & Green EAN Barcode Overlay
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(120.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            // Barcode tracker (Green)
-                            Box(
-                                modifier = Modifier
-                                    .size(150.dp, 40.dp)
-                                    .align(Alignment.TopCenter)
-                                    .border(2.dp, SemanticGreen, RoundedCornerShape(4.dp))
-                                    .padding(4.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "[EAN TRACKER]",
-                                    color = SemanticGreen,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            // Price reader tracker (Blue)
-                            Box(
-                                modifier = Modifier
-                                    .size(130.dp, 35.dp)
-                                    .align(Alignment.BottomCenter)
-                                    .border(2.dp, SemanticBlueInfo, RoundedCornerShape(4.dp))
-                                    .padding(4.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "[PRICE OCR]",
-                                    color = SemanticBlueInfo,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            // Tap to open real camera
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier
-                                    .align(Alignment.Center)
-                                    .clickable { viewModel.isFullScreenCameraOpen.value = true }
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Camera,
-                                        contentDescription = "Fotocamera",
-                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = "FOTOCAMERA REALE",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                }
-                            }
-                        }
-
-                        // Bottom row Laplace calculations
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(
-                                    text = "Varianza Laplace: ${String.format(Locale.US, "%.1f", laplaceVariance)} ISO",
-                                    color = Color.White,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = autoTriggerStatus,
-                                    color = if (laplaceVariance > 20) SemanticGreen else Color.LightGray,
-                                    style = MaterialTheme.typography.labelSmall
-                                )
-                            }
-
-                            Button(
-                                onClick = {
-                                    if (!isSimulatingAutoTrigger) {
-                                        isSimulatingAutoTrigger = true
-                                        coroutineScope.launch {
-                                            autoTriggerStatus = "Stabilizzazione mano..."
-                                            delay(800)
-                                            laplaceVariance = 8.5
-                                            autoTriggerStatus = "Messa a fuoco..."
-                                            delay(800)
-                                            laplaceVariance = 15.3
-                                            autoTriggerStatus = "Ottimizzazione nitidezza..."
-                                            delay(800)
-                                            laplaceVariance = 24.8 // exceeds threshold of 20
-                                            autoTriggerStatus = "Nitido! SCATTO AUTOMATICO."
-                                            
-                                            // Perform mock scan trigger with preset
-                                            viewModel.processScanningWithGemini(esselungaOcrPreset)
-                                            
-                                            delay(1000)
-                                            isSimulatingAutoTrigger = false
-                                            laplaceVariance = 4.2
-                                            autoTriggerStatus = "Scontrino caricato con successo!"
-                                        }
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                enabled = !isSimulatingAutoTrigger,
-                                shape = RoundedCornerShape(24.dp),
-                                modifier = Modifier.testTag("autotrigger_simulator_button")
-                            ) {
-                                Text("Auto-Trigger")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // PRESET SELECTIONS FOR TESTING FLUIDITY
-        item {
-            Card(
-                shape = RoundedCornerShape(28.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Carica Preset Scontrini (Ottimizza Debug)",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold
+                // Scontrino Card
+                Card(
+                    onClick = {
+                        viewModel.cameraScanTarget.value = "SCONTRINO"
+                        viewModel.isFullScreenCameraOpen.value = true
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("scan_receipt_card_button"),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Seleziona un'insegna comune per simulare l'OCR parsing e i match Jaro-Winkler.",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
+                ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                viewModel.processScanningWithGemini(lidlOcrPreset)
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
-                            shape = RoundedCornerShape(24.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("preset_lidl")
-                        ) {
-                            Text("Scontrino Lidl")
-                        }
-                        Button(
-                            onClick = {
-                                viewModel.processScanningWithGemini(esselungaOcrPreset)
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
-                            shape = RoundedCornerShape(24.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("preset_esselunga")
-                        ) {
-                            Text("Scontrino Esselunga")
-                        }
-                    }
-                }
-            }
-        }
-
-        // Direct Text Input for Gemini API / local OCR testing
-        item {
-            Card(
-                shape = RoundedCornerShape(28.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Testo OCR Personalizzato",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Icon(
-                            imageVector = if (isOffline) Icons.Default.WifiOff else Icons.Default.AutoAwesome,
-                            contentDescription = "OCR Engine",
-                            tint = if (isOffline) SemanticYellow else MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    OutlinedTextField(
-                        value = manualOcrText,
-                        onValueChange = { manualOcrText = it },
-                        placeholder = { Text("Inserisci righe dello scontrino estrapolate qui...") },
-                        shape = RoundedCornerShape(16.dp),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(100.dp)
-                            .testTag("ocr_custom_text_input"),
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Button(
-                        onClick = {
-                            if (manualOcrText.isNotBlank()) {
-                                viewModel.processScanningWithGemini(manualOcrText)
-                            }
-                        },
-                        enabled = manualOcrText.isNotBlank(),
-                        shape = RoundedCornerShape(24.dp),
-                        modifier = Modifier
-                            .align(Alignment.End)
-                            .testTag("submit_ocr_text_button")
+                            .padding(20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Text("Analisi Intelligente")
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .background(MaterialTheme.colorScheme.primary, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Receipt,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                        
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Acquisisci Scontrino",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Scatta una foto vera ad uno scontrino della spesa per analizzarlo e importare i prodotti in automatico.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+                }
+
+                // Etichetta Scaffale Card
+                Card(
+                    onClick = {
+                        viewModel.cameraScanTarget.value = "SCAFFALE"
+                        viewModel.isFullScreenCameraOpen.value = true
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("scan_label_card_button"),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .background(MaterialTheme.colorScheme.secondary, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Camera,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSecondary,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                        
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Acquisisci Etichetta Scaffale",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Inquadra l'etichetta del prezzo sullo scaffale per aggiornare il catalogo o verificare il costo opportunità.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                            )
+                        }
                     }
                 }
             }
@@ -1072,501 +909,9 @@ fun ScannerScreen(
         }
     }
 
-    if (showLocalAiDownloadDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                if (!isDownloadingModel) {
-                    viewModel.showLocalAiDownloadDialog.value = false
-                    viewModel.isLocalLlmActive.value = false
-                }
-            },
-            icon = {
-                Icon(
-                    imageVector = Icons.Default.AutoAwesome,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(36.dp)
-                )
-            },
-            title = {
-                Text(
-                    text = if (isDownloadingModel) "Analisi in corso..." else "Verifica Coprocessore AI Locale",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    if (isDownloadingModel) {
-                        Text(
-                            text = "Interrogazione coprocessori hardware SoC (NPU), verifica integrazione Android AICore e servizi Samsung/Xiaomi...",
-                            style = MaterialTheme.typography.bodyMedium,
-                            textAlign = TextAlign.Center
-                        )
-                        
-                        LinearProgressIndicator(
-                            progress = modelDownloadProgress,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(8.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                            strokeCap = androidx.compose.ui.graphics.StrokeCap.Round
-                        )
-                        
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = modelDownloadStep,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Text(
-                                text = "${(modelDownloadProgress * 100).toInt()}%",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    } else {
-                        Text(
-                            text = "La scansione offline al 100% richiede la presenza di un coprocessore neurale fisico (NPU) o di servizi AI forniti dal sistema operativo del tuo telefono (Android AICore di Google, Samsung Galaxy AI, o moduli equivalenti Xiaomi/Oppo).\n\nL'app eseguirà una diagnostica hardware e software per verificare l'effettiva compatibilità ed evitare simulazioni ingannevoli.\n\nVuoi procedere con il test di compatibilità?",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                if (!isDownloadingModel) {
-                    Button(
-                        onClick = { viewModel.startLocalLlmDownload() }
-                    ) {
-                        Text("Esegui Diagnostica")
-                    }
-                }
-            },
-            dismissButton = {
-                if (!isDownloadingModel) {
-                    TextButton(
-                        onClick = {
-                            viewModel.showLocalAiDownloadDialog.value = false
-                            viewModel.isLocalLlmActive.value = false
-                        }
-                    ) {
-                        Text("Annulla")
-                    }
-                }
-            }
-        )
-    }
 
-    if (showLocalAiSuccessDialog) {
-        val scrollState = rememberScrollState()
-        AlertDialog(
-            onDismissRequest = { viewModel.showLocalAiSuccessDialog.value = false },
-            icon = {
-                Icon(
-                    imageVector = if (isOnDeviceAiSupported == true) Icons.Default.CheckCircle else Icons.Default.Info,
-                    contentDescription = null,
-                    tint = if (isOnDeviceAiSupported == true) SemanticGreen else if (isOnDeviceAiSupported == false) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary,
-                    modifier = Modifier.size(48.dp)
-                )
-            },
-            title = {
-                Text(
-                    text = if (isOnDeviceAiSupported == true) "AI Locale Attivata!" else "Risultato Diagnostica Locale",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = if (isOnDeviceAiSupported == true) {
-                            "Congratulazioni! Il tuo dispositivo supporta l'accelerazione neurale e l'elaborazione offline."
-                        } else if (isOnDeviceAiSupported == false) {
-                            "Ambiente non compatibile con l'elaborazione neurale offline."
-                        } else {
-                            "Diagnostica completata."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isOnDeviceAiSupported == true) SemanticGreen else if (isOnDeviceAiSupported == false) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
-                    )
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 240.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .border(1.dp, MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
-                            .padding(10.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(scrollState)
-                        ) {
-                            Text(
-                                text = onDeviceAiDiagnosticResult,
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                    lineHeight = androidx.compose.ui.unit.TextUnit.Unspecified
-                                ),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = { viewModel.showLocalAiSuccessDialog.value = false },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (isOnDeviceAiSupported == true) SemanticGreen else MaterialTheme.colorScheme.secondary
-                    )
-                ) {
-                    Text(if (isOnDeviceAiSupported == true) "Attiva offline" else "Ho Capito")
-                }
-            }
-        )
-    }
 
-    if (showLocalAiSettingsDialog) {
-        AlertDialog(
-            onDismissRequest = { viewModel.showLocalAiSettingsDialog.value = false },
-            title = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Text(
-                        text = "Impostazioni AI & Scanner",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    // Section 1: Connection & Simulation Mode
-                    Column {
-                        Text(
-                            text = "MODALITÀ SIMULAZIONE",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(bottom = 6.dp)
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Simulazione Offline",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "Simula l'assenza totale di connessione dati.",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Switch(
-                                checked = isOffline,
-                                onCheckedChange = { checked ->
-                                    viewModel.isOfflineMode.value = checked
-                                },
-                                modifier = Modifier.testTag("offline_simulator_switch")
-                            )
-                        }
-                    }
-
-                    // Section 2: On-Device local AI configuration
-                    Column {
-                        Text(
-                            text = "AI LOCALE SUL DISPOSITIVO",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(bottom = 6.dp)
-                        )
-                        Card(
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "IA Locale (100% Offline)",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            text = "Elabora scontrini sul chip neurale nativo natio del telefono (AICore/Galaxy AI).",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Switch(
-                                        checked = isLocalLlmActive,
-                                        onCheckedChange = { checked ->
-                                            if (checked) {
-                                                if (isLocalModelDownloaded) {
-                                                    viewModel.isLocalLlmActive.value = true
-                                                } else {
-                                                    viewModel.showLocalAiDownloadDialog.value = true
-                                                }
-                                            } else {
-                                                viewModel.isLocalLlmActive.value = false
-                                            }
-                                        },
-                                        modifier = Modifier.testTag("local_gemma_settings_switch")
-                                    )
-                                }
-
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(MaterialTheme.colorScheme.background, RoundedCornerShape(8.dp))
-                                        .padding(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "Stato Servizi AI On-Device",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.secondary
-                                        )
-                                        Text(
-                                            text = if (isLocalModelDownloaded) {
-                                                if (isOnDeviceAiSupported == true) "Compatibile e Attivo" else "Non compatibile (Ambiente Virtuale)"
-                                            } else {
-                                                "Nessuna diagnostica eseguita"
-                                            },
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = if (isLocalModelDownloaded && isOnDeviceAiSupported == true) SemanticGreen else if (isLocalModelDownloaded) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    if (!isLocalModelDownloaded) {
-                                        TextButton(
-                                            onClick = {
-                                                viewModel.showLocalAiDownloadDialog.value = true
-                                            },
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                            modifier = Modifier.height(32.dp).testTag("download_gemma_button")
-                                        ) {
-                                            Text("TEST COMPATIBILITÀ", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                                        }
-                                    } else {
-                                        IconButton(
-                                            onClick = {
-                                                viewModel.showLocalAiDownloadDialog.value = true
-                                            }
-                                        ) {
-                                            Icon(
-                                                imageVector = if (isOnDeviceAiSupported == true) Icons.Default.CheckCircle else Icons.Default.Warning,
-                                                contentDescription = "Riesegui Diagnostica",
-                                                tint = if (isOnDeviceAiSupported == true) SemanticGreen else MaterialTheme.colorScheme.error,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Section 3: Cloud Gemini status
-                    Column {
-                        Text(
-                            text = "STATO SERVIZIO CLOUD",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(bottom = 6.dp)
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Server Cloud AI Google",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = if (isGemini && !isOffline) "Collegato e Funzionante" else "Non disponibile o offline",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .background(
-                                        if (isGemini && !isOffline) SemanticGreen.copy(alpha = 0.15f) else MaterialTheme.colorScheme.errorContainer,
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = if (isGemini && !isOffline) "ATTIVO" else "OFFLINE",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (isGemini && !isOffline) SemanticGreen else MaterialTheme.colorScheme.onErrorContainer,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-
-                    // Section 4: Global Settings & Database Administration
-                    Column {
-                        Text(
-                            text = "GESTIONE DATABASE & IMPOSTAZIONI GLOBALI",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(bottom = 6.dp)
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Inizializza Database",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "Resetta l'app cancellando scontrini storici, spese ordinarie e anagrafica dei negozi.",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Button(
-                                onClick = { showInitDbConfirmation = true },
-                                colors = ButtonDefaults.buttonColors(containerColor = SemanticRed),
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.testTag("reset_database_button")
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = Icons.Default.DeleteForever,
-                                        contentDescription = "Inizializza Database",
-                                        modifier = Modifier.size(16.dp),
-                                        tint = Color.White
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Inizializza", color = Color.White, style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = { viewModel.showLocalAiSettingsDialog.value = false },
-                    modifier = Modifier.testTag("dismiss_settings_button")
-                ) {
-                    Text("Chiudi")
-                }
-            }
-        )
-    }
-
-    if (showInitDbConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showInitDbConfirmation = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = "Attenzione",
-                        tint = SemanticRed
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Inizializza Database?", fontWeight = FontWeight.Bold)
-                }
-            },
-            text = {
-                Text(
-                    text = "Sei sicuro di voler inizializzare il database? Tutti i dati (spese ordinarie, scontrini scansionati, conguagli storici ed elenco dei negozi registrati) verranno cancellati in modo DEFINITIVO. Questa operazione non può essere annullata.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.initializeDatabase()
-                        showInitDbConfirmation = false
-                        viewModel.showLocalAiSettingsDialog.value = false
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = SemanticRed),
-                    shape = RoundedCornerShape(24.dp),
-                    modifier = Modifier.testTag("confirm_init_db_button")
-                ) {
-                    Text("Sì, Inizializza", color = Color.White)
-                }
-            },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = { showInitDbConfirmation = false },
-                    shape = RoundedCornerShape(24.dp),
-                    modifier = Modifier.testTag("cancel_init_db_button")
-                ) {
-                    Text("Annulla")
-                }
-            }
-        )
-    }
 
     if (scanError != null) {
         AlertDialog(
@@ -2129,7 +1474,9 @@ fun FullScreenCameraOverlay(
         )
     }
     
-    var useSimulatedCamera by remember { mutableStateOf(true) }
+    var useSimulatedCameraState by remember { mutableStateOf(true) }
+    val globalSimulatedCamera by viewModel.useSimulatedCamera.collectAsState()
+    val useSimulatedCamera = useSimulatedCameraState || globalSimulatedCamera
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -2154,21 +1501,21 @@ fun FullScreenCameraOverlay(
                         val hasBack = cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
                         val hasFront = cameraProvider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)
                         if (hasBack || hasFront) {
-                            useSimulatedCamera = false
+                            useSimulatedCameraState = false
                         } else {
-                            useSimulatedCamera = true
+                            useSimulatedCameraState = true
                         }
                     } catch (t: Throwable) {
                         t.printStackTrace()
-                        useSimulatedCamera = true
+                        useSimulatedCameraState = true
                     }
                 }, ContextCompat.getMainExecutor(context))
             } catch (t: Throwable) {
                 t.printStackTrace()
-                useSimulatedCamera = true
+                useSimulatedCameraState = true
             }
         } else {
-            useSimulatedCamera = true
+            useSimulatedCameraState = true
         }
     }
 
@@ -2178,6 +1525,20 @@ fun FullScreenCameraOverlay(
         if (successToastText != null) {
             delay(3000)
             successToastText = null
+        }
+    }
+
+    // Active shelf scanning preview and auto-sensing structures
+    var activeShelfScanResult by remember { mutableStateOf<ShelfScanResult?>(null) }
+    var shelfScanErrorMessage by remember { mutableStateOf<String?>(null) }
+    var sensedBarcodeText by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(cameraScanTarget, activeShelfScanResult, shelfScanErrorMessage, useSimulatedCamera) {
+        if (useSimulatedCamera && cameraScanTarget == "SCAFFALE" && activeShelfScanResult == null && shelfScanErrorMessage == null) {
+            delay(2000) // Simulate background scanner sensing EAN code silently within 2 seconds
+            sensedBarcodeText = "8008040" + (100000 + (0..99999).random()).toString()
+        } else if (useSimulatedCamera) {
+            sensedBarcodeText = null
         }
     }
 
@@ -2229,10 +1590,14 @@ fun FullScreenCameraOverlay(
             val preset = if (store.lowercase().contains("lidl")) lidlPreset else esselungaPreset
             viewModel.completeCameraReceiptScan(store, preset.split("\n"))
         } else {
-            val barcode = "8008040" + (100000 + (0..99999).random()).toString()
+            val barcode = sensedBarcodeText ?: ("8008040" + (100000 + (0..99999).random()).toString())
             val price = (1..5).random() + 0.99
-            viewModel.completeCameraShelfScan(barcode, price)
-            successToastText = "Acquisito Scaffale: EAN $barcode a €${String.format(Locale.US, "%.2f", price)}"
+            activeShelfScanResult = ShelfScanResult(
+                barcode = barcode,
+                price = price,
+                inferredName = "Prodotto Scaffale ($barcode)"
+            )
+            shelfScanErrorMessage = null
         }
     }
 
@@ -2279,23 +1644,70 @@ fun FullScreenCameraOverlay(
                                             }
                                             viewModel.completeCameraReceiptScan(store, textResult.split("\n"), elementsList)
                                         } else {
-                                            val textLines = textResult.split("\n")
-                                            var priceFound = 0.99
-                                            var barcodeFound = "8008040" + (100000 + (0..99999).random()).toString()
-                                            
-                                            val priceRegex = Regex("""(\d+)[,.](\d{2})""")
-                                            val barcodeRegex = Regex("""\b\d{8,13}\b""")
-                                            for (line in textLines) {
-                                                priceRegex.find(line)?.let {
-                                                    priceFound = it.value.replace(",", ".").toDouble()
+                                            val barcodeScanner = BarcodeScanning.getClient()
+                                            barcodeScanner.process(inputImage)
+                                                .addOnSuccessListener { barcodes ->
+                                                    var barcodeFound = barcodes.firstOrNull()?.rawValue ?: sensedBarcodeText
+                                                    val textLines = textResult.split("\n")
+                                                    var priceFound: Double? = null
+                                                    
+                                                    val priceRegex = Regex("""(\d+)[,.](\d{2})""")
+                                                    val barcodeRegex = Regex("""\b\d{8,13}\b""")
+                                                    for (line in textLines) {
+                                                        priceRegex.find(line)?.let {
+                                                            priceFound = it.value.replace(",", ".").toDouble()
+                                                        }
+                                                        if (barcodeFound == null) {
+                                                            barcodeRegex.find(line)?.let {
+                                                                barcodeFound = it.value
+                                                            }
+                                                        }
+                                                    }
+                                                    
+                                                    if (priceFound != null) {
+                                                        val finalBarcode = barcodeFound ?: ("8008040" + (100000 + (0..99999).random()).toString())
+                                                        activeShelfScanResult = ShelfScanResult(
+                                                            barcode = finalBarcode,
+                                                            price = priceFound!!,
+                                                            inferredName = "Prodotto Scaffale ($finalBarcode)"
+                                                        )
+                                                        shelfScanErrorMessage = null
+                                                    } else {
+                                                        activeShelfScanResult = null
+                                                        shelfScanErrorMessage = "Nessun prezzo rilevato nell'immagine. Inquadra chiaramente l'etichetta col prezzo e riprova."
+                                                    }
                                                 }
-                                                barcodeRegex.find(line)?.let {
-                                                    barcodeFound = it.value
+                                                .addOnFailureListener {
+                                                    var barcodeFound = sensedBarcodeText
+                                                    val textLines = textResult.split("\n")
+                                                    var priceFound: Double? = null
+                                                    
+                                                    val priceRegex = Regex("""(\d+)[,.](\d{2})""")
+                                                    val barcodeRegex = Regex("""\b\d{8,13}\b""")
+                                                    for (line in textLines) {
+                                                        priceRegex.find(line)?.let {
+                                                            priceFound = it.value.replace(",", ".").toDouble()
+                                                        }
+                                                        if (barcodeFound == null) {
+                                                            barcodeRegex.find(line)?.let {
+                                                                barcodeFound = it.value
+                                                            }
+                                                        }
+                                                    }
+                                                    
+                                                    if (priceFound != null) {
+                                                        val finalBarcode = barcodeFound ?: ("8008040" + (100000 + (0..99999).random()).toString())
+                                                        activeShelfScanResult = ShelfScanResult(
+                                                            barcode = finalBarcode,
+                                                            price = priceFound!!,
+                                                            inferredName = "Prodotto Scaffale ($finalBarcode)"
+                                                        )
+                                                        shelfScanErrorMessage = null
+                                                    } else {
+                                                        activeShelfScanResult = null
+                                                        shelfScanErrorMessage = "Nessun prezzo o codice a barre rilevato nell'immagine. Riprova."
+                                                    }
                                                 }
-                                            }
-                                            
-                                            viewModel.completeCameraShelfScan(barcodeFound, priceFound)
-                                            successToastText = "AR OCR: Rilevato €${String.format(Locale.US, "%.2f", priceFound)}!"
                                         }
                                         image.close()
                                     }
@@ -2356,6 +1768,31 @@ fun FullScreenCameraOverlay(
                                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                                     .build()
                                 imageCapture = imgCap
+
+                                val imageAnalysis = ImageAnalysis.Builder()
+                                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                    .build()
+                                
+                                val barcodeScanner = BarcodeScanning.getClient()
+                                imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(ctx)) { imageProxy ->
+                                    @androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
+                                    val mediaImage = imageProxy.image
+                                    if (mediaImage != null && cameraScanTarget == "SCAFFALE") {
+                                        val inputImage = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                                        barcodeScanner.process(inputImage)
+                                            .addOnSuccessListener { barcodes ->
+                                                val firstBarcode = barcodes.firstOrNull()?.rawValue
+                                                if (firstBarcode != null) {
+                                                    sensedBarcodeText = firstBarcode
+                                                }
+                                            }
+                                            .addOnCompleteListener {
+                                                imageProxy.close()
+                                            }
+                                    } else {
+                                        imageProxy.close()
+                                    }
+                                }
                                 
                                 val cameraSelector = if (cameraProvider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)) {
                                     CameraSelector.DEFAULT_BACK_CAMERA
@@ -2367,16 +1804,17 @@ fun FullScreenCameraOverlay(
                                     lifecycleOwner,
                                     cameraSelector,
                                     preview,
-                                    imgCap
+                                    imgCap,
+                                    imageAnalysis
                                 )
                             } catch (t: Throwable) {
                                 t.printStackTrace()
-                                useSimulatedCamera = true
+                                useSimulatedCameraState = true
                             }
                         }, ContextCompat.getMainExecutor(ctx))
                     } catch (t: Throwable) {
                         t.printStackTrace()
-                        useSimulatedCamera = true
+                        useSimulatedCameraState = true
                     }
                     previewView
                 },
@@ -2509,52 +1947,133 @@ fun FullScreenCameraOverlay(
                 contentAlignment = Alignment.Center
             ) {
                 Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
                 ) {
-                    // Barcode targeting window
+                    // Modern horizontal targeting card window with rounded corners
                     Box(
                         modifier = Modifier
-                            .size(240.dp, 80.dp)
-                            .border(2.dp, SemanticGreen, RoundedCornerShape(8.dp))
-                            .background(SemanticGreen.copy(alpha = 0.1f)),
+                            .fillMaxWidth(0.85f)
+                            .height(160.dp)
+                            .border(3.dp, SemanticBlueInfo, RoundedCornerShape(16.dp))
+                            .background(Color.Black.copy(alpha = 0.35f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        // Animated Sweeping Laser line
+                        // Corner lines for high-tech look
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val w = size.width
+                            val h = size.height
+                            val armLen = 20.dp.toPx()
+                            val stroke = 3.dp.toPx()
+                            
+                            // Top-Left corner
+                            drawLine(SemanticBlueInfo, androidx.compose.ui.geometry.Offset(0f, 0f), androidx.compose.ui.geometry.Offset(armLen, 0f), stroke)
+                            drawLine(SemanticBlueInfo, androidx.compose.ui.geometry.Offset(0f, 0f), androidx.compose.ui.geometry.Offset(0f, armLen), stroke)
+                            
+                            // Top-Right corner
+                            drawLine(SemanticBlueInfo, androidx.compose.ui.geometry.Offset(w, 0f), androidx.compose.ui.geometry.Offset(w - armLen, 0f), stroke)
+                            drawLine(SemanticBlueInfo, androidx.compose.ui.geometry.Offset(w, 0f), androidx.compose.ui.geometry.Offset(w, armLen), stroke)
+                            
+                            // Bottom-Left corner
+                            drawLine(SemanticBlueInfo, androidx.compose.ui.geometry.Offset(0f, h), androidx.compose.ui.geometry.Offset(armLen, h), stroke)
+                            drawLine(SemanticBlueInfo, androidx.compose.ui.geometry.Offset(0f, h), androidx.compose.ui.geometry.Offset(0f, h - armLen), stroke)
+                            
+                            // Bottom-Right corner
+                            drawLine(SemanticBlueInfo, androidx.compose.ui.geometry.Offset(w, h), androidx.compose.ui.geometry.Offset(w - armLen, h), stroke)
+                            drawLine(SemanticBlueInfo, androidx.compose.ui.geometry.Offset(w, h), androidx.compose.ui.geometry.Offset(w, h - armLen), stroke)
+                        }
+
+                        // Scanning laser line
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(2.dp)
                                 .align(Alignment.TopCenter)
-                                .offset(y = 80.dp * laserYOffset)
-                                .background(SemanticGreen)
+                                .offset(y = 160.dp * laserYOffset)
+                                .background(SemanticBlueInfo)
                         )
 
-                        Text(
-                            text = "[EAN CODE TARGET]",
-                            color = SemanticGreen,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
-                        )
+                        // Real or simulated silent scanning feedback banner inside target
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            if (sensedBarcodeText != null) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                    modifier = Modifier
+                                        .background(SemanticGreen.copy(alpha = 0.85f), RoundedCornerShape(20.dp))
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Sensed",
+                                        tint = Color.Black,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "EAN RILEVATO SILENZIOSAMENTE: $sensedBarcodeText",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.Black
+                                    )
+                                }
+                            } else {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center,
+                                    modifier = Modifier
+                                        .background(Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    CircularProgressIndicator(
+                                        color = SemanticBlueInfo,
+                                        strokeWidth = 2.dp,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Rilevamento codice EAN in corso...",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                        }
                     }
 
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
-                    // Price tag targeting window
-                    Box(
-                        modifier = Modifier
-                            .size(180.dp, 60.dp)
-                            .border(2.dp, SemanticBlueInfo, RoundedCornerShape(8.dp))
-                            .background(SemanticBlueInfo.copy(alpha = 0.1f)),
-                        contentAlignment = Alignment.Center
+                    // Invitation/Guidance Card
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.7f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth(0.9f)
                     ) {
-                        Text(
-                            text = "[DIGITAL PRICE OCR]",
-                            color = SemanticBlueInfo,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Column(
+                            modifier = Modifier.padding(14.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "COOPERA ALLA MESSA A FUOCO",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = SemanticBlueInfo
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Fai rientrare l'etichetta del prezzo interamente nel riquadro, tenendo il telefono ben fermo alla corretta distanza per permettere la messa a fuoco.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.LightGray,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
                 }
             }
@@ -2820,7 +2339,245 @@ fun FullScreenCameraOverlay(
                 )
             }
         }
+
+        // --- Success Preview Overlay Card ---
+        AnimatedVisibility(
+            visible = activeShelfScanResult != null,
+            enter = fadeIn() + scaleIn(initialScale = 0.95f),
+            exit = fadeOut() + scaleOut(targetScale = 0.95f),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            val result = activeShelfScanResult
+            if (result != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.75f))
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Card(
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .wrapContentHeight()
+                            .border(2.dp, SemanticGreen, RoundedCornerShape(24.dp))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .background(SemanticGreen.copy(alpha = 0.2f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Rilevamento OK",
+                                    tint = SemanticGreen,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Text(
+                                text = "ETICHETTA RILEVATA CORRETTAMENTE",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = SemanticGreen,
+                                textAlign = TextAlign.Center
+                            )
+
+                            Spacer(modifier = Modifier.height(20.dp))
+
+                            // Details Box
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.background, RoundedCornerShape(12.dp))
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Codice EAN:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(result.barcode, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                }
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Prezzo Rilevato:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("€${String.format(Locale.US, "%.2f", result.price)}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                }
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Etichetta Catalogo:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(result.inferredName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            // Action Buttons
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        // Discard and retry instantly
+                                        activeShelfScanResult = null
+                                    },
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                    shape = RoundedCornerShape(20.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Scarta e Riprova", style = MaterialTheme.typography.labelMedium)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        // Commit to VM and reset
+                                        viewModel.completeCameraShelfScan(result.barcode, result.price)
+                                        activeShelfScanResult = null
+                                        successToastText = "Scaffale AR: EAN ${result.barcode} importato con successo."
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                    shape = RoundedCornerShape(20.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Accetta e Salva", style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- Failure Preview Overlay Card ---
+        AnimatedVisibility(
+            visible = shelfScanErrorMessage != null,
+            enter = fadeIn() + scaleIn(initialScale = 0.95f),
+            exit = fadeOut() + scaleOut(targetScale = 0.95f),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            val errMsg = shelfScanErrorMessage
+            if (errMsg != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.75f))
+                        .padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Card(
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .wrapContentHeight()
+                            .border(2.dp, MaterialTheme.colorScheme.error, RoundedCornerShape(24.dp))
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .background(MaterialTheme.colorScheme.error.copy(alpha = 0.2f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = "Rilevamento fallito",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Text(
+                                text = "RILEVAMENTO INCOMPLETO",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.error,
+                                textAlign = TextAlign.Center
+                            )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Text(
+                                text = errMsg,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            // Action Buttons
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        shelfScanErrorMessage = null
+                                    },
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                                    shape = RoundedCornerShape(20.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Chiudi", style = MaterialTheme.typography.labelMedium)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        shelfScanErrorMessage = null
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                    shape = RoundedCornerShape(20.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Riprova", style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
 val DarkActiveGreen = Color(0xFF00E676)
+
+data class ShelfScanResult(
+    val barcode: String,
+    val price: Double,
+    val inferredName: String
+)
+

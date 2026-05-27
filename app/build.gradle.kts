@@ -8,11 +8,13 @@ plugins {
 
 val networkConfigFile = rootProject.file("network_config.json")
 var localBackendIp = "10.0.2.2" // standard Android emulator loopback fallback
+var sendOcrToBackend = false
 if (networkConfigFile.exists()) {
     try {
         val parsed = groovy.json.JsonSlurper().parseText(networkConfigFile.readText()) as Map<*, *>
         localBackendIp = parsed["LOCAL_BACKEND_IP"] as String
-        logger.lifecycle("--- Gradle Build: Found LOCAL_BACKEND_IP in network_config.json ($localBackendIp) ---")
+        sendOcrToBackend = parsed["SEND_OCR_TO_BACKEND"] as? Boolean ?: false
+        logger.lifecycle("--- Gradle Build: Found LOCAL_BACKEND_IP ($localBackendIp), SEND_OCR_TO_BACKEND ($sendOcrToBackend) in network_config.json ---")
     } catch (e: Exception) {
         logger.lifecycle("--- Gradle Build: Failed to parse network_config.json: ${e.message} ---")
     }
@@ -30,6 +32,7 @@ android {
     versionName = "1.0"
 
     buildConfigField("String", "LOCAL_BACKEND_IP", "\"$localBackendIp\"")
+    buildConfigField("Boolean", "SEND_OCR_TO_BACKEND", "$sendOcrToBackend")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -129,6 +132,7 @@ dependencies {
   implementation(libs.moshi.kotlin)
   implementation(libs.okhttp)
   implementation(libs.play.services.mlkit.text.recognition)
+  implementation(libs.play.services.mlkit.barcode.scanning)
   // implementation(libs.play.services.location)
   implementation(libs.retrofit)
   testImplementation(libs.androidx.compose.ui.test.junit4)

@@ -44,3 +44,13 @@
 ## 🛰️ 4. Protocollo di Integrazione e Dynamic IP
 *   L'anagrafica IP e di rete per connettere l'app all'ambiente backend locale è salvata rigorosamente in `network_config.json`.
 *   Nessun fattore di build o indirizzo statico deve essere codificato nell'ambiente Android al di fuori di quanto generato dallo script `update_ip.py` o iniettato via `BuildConfig`.
+
+---
+
+## 📱 5. Pulizia dell'Interfaccia Scanner e Assenza di Dati Fittizi di Default
+*   **Assenza di Dati Democratici / Fittizi**: All'avvio dell'applicazione non deve essere mostrato o inserito alcun dato fittizio, dimostrativo o di simulazione precostituita (quali prodotti demo temporanei o "Scontrini in sospeso fittizi" quali Lidl al "Via Milano, 5" ed Esselunga in "Corso Sempione, 46") a meno che non sia stato esplicitamente inserito o acquisito dall'utente. Un'inizializzazione pulita sul database locale vuoto garantisce l'assoluta conformità con l'ambiente reale.
+*   **Pannello "Modalità sviluppatore"**: Tutte le opzioni di test, diagnostiche, auto-trigger, preset di debug degli scontrini OCR (Lidl, Esselunga) ed inserimento testo OCR personalizzato per testare i servizi sono banditi dallo schermo principale o dallo Scanner e devono invece risiedere esclusivamente all'interno delle Impostazioni Globali sotto l'etichetta **"Modalità sviluppatore"** (attivabile da amministratore).
+*   **Scanner Screen Semplificato**: La tab Scanner deve escludere HUD scuri di simulazione della fotocamera ("Fotocamera reale" HUD), calcoli intermedi visibili per Laplace ad uso interno o pulsanti di caricamento preset. Al suo posto, devono essere presenti esclusivamente pulsanti prominenti per:
+    1.  **Acquisisci Scontrino**: che apre direttamente l'inquadratura reale (`SCONTRINO`) per l'analisi OCR e associazione degli scontrini reali.
+    2.  **Acquisisci Etichetta Scaffale**: che apre direttamente l'inquadratura reale (`SCAFFALE`) per aggiornare il catalogo o verificare il costo opportunità.
+

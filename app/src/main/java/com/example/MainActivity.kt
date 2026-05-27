@@ -170,6 +170,25 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
+
+                // Unified Global Settings and Diagnostics Dashboard (anti-clutter)
+                val showSettingsDialog by viewModel.showLocalAiSettingsDialog.collectAsState()
+                if (showSettingsDialog) {
+                    com.example.ui.screens.GlobalSettingsDialog(
+                        viewModel = viewModel,
+                        onDismiss = { viewModel.showLocalAiSettingsDialog.value = false }
+                    )
+                }
+
+                val showLocalAiDownloadDialog by viewModel.showLocalAiDownloadDialog.collectAsState()
+                val showLocalAiSuccessDialog by viewModel.showLocalAiSuccessDialog.collectAsState()
+                
+                if (showLocalAiDownloadDialog) {
+                    com.example.ui.screens.LocalAiDownloadDialog(viewModel = viewModel)
+                }
+                if (showLocalAiSuccessDialog) {
+                    com.example.ui.screens.LocalAiSuccessDialog(viewModel = viewModel)
+                }
             }
         }
     }

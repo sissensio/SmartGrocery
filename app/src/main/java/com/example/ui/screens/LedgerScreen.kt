@@ -47,10 +47,7 @@ fun LedgerScreen(
     var editingLedgerItemIndex by remember { mutableStateOf<Int?>(null) }
     var editingLedgerItemByEntry by remember { mutableStateOf<LedgerEntry?>(null) }
 
-    // Export Dialog states to satisfy Section 9 sovereignty
-    var showExportDialog by remember { mutableStateOf(false) }
-    var exportProgress by remember { mutableStateOf("") }
-    var isExporting by remember { mutableStateOf(false) }
+
 
     // Algorithmic Resolver for Net Balance Debt - Section 7.2
     val outstandingEntries = ledgerEntries.filter { !it.isSettled }
@@ -175,55 +172,7 @@ fun LedgerScreen(
             }
         }
 
-        // GDPR DATA SOVEREIGNTY IMPORT EXPORT (Section 9)
-        item {
-            Card(
-                shape = RoundedCornerShape(28.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("gdpr_export_module")
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.FileDownload,
-                            contentDescription = "Sovereignty Export",
-                            tint = SemanticYellow,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Esporta Tutto (Sovereign GDPR)",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "I tuoi dati ti appartengono. Scarica lo storico completo in svariati formati standard (CSV / PDF) per evitare qualsiasi vincolo tecnologico (vendor lock-in).",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
 
-                    Button(
-                        onClick = {
-                            isExporting = true
-                            exportProgress = "Preparazione tabelle SQLite cifrate..."
-                            showExportDialog = true
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
-                        shape = RoundedCornerShape(24.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("gdpr_export_button")
-                    ) {
-                        Text("Esporta CSV & PDF")
-                    }
-                }
-            }
-        }
 
         // LIST OF HISTORICAL LEDGER ENTRIES
         item {
@@ -355,48 +304,7 @@ fun LedgerScreen(
         }
     }
 
-    // GDPR Export Progress overlay (Section 9)
-    if (showExportDialog) {
-        AlertDialog(
-            onDismissRequest = { if (!isExporting) showExportDialog = false },
-            title = { Text("Anti Vendor Lock-In Export") },
-            text = {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = exportProgress,
-                        style = MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Center
-                    )
-                    if (isExporting) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        
-                        LaunchedEffect(Unit) {
-                            delay(1000)
-                            exportProgress = "Estrapolazione scontrini e contanti privati..."
-                            delay(1000)
-                            exportProgress = "Generazione file 'smart_grocery_ledger_export.csv'..."
-                            delay(1000)
-                            exportProgress = "Cucitura PDF compendio finale..."
-                            delay(800)
-                            isExporting = false
-                            exportProgress = "Archivio ZIP generato con successo! I tuoi dati sono liberi ed offline."
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = { showExportDialog = false },
-                    enabled = !isExporting,
-                    shape = RoundedCornerShape(24.dp),
-                    modifier = Modifier.testTag("close_export_dialog")
-                ) {
-                    Text("Scarica Archivio")
-                }
-            }
-        )
-    }
+
 
     // Receipt Inspector Detail Dialog (Consult receipt detail from Ledger)
     if (selectedEntryForDetails != null) {

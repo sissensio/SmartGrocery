@@ -186,18 +186,37 @@ fun HomeScreen(
 
         // Title Welcome Block
         item {
-            Column(modifier = Modifier.padding(vertical = 8.dp)) {
-                Text(
-                    text = "SmartGrocery",
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Black,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = "L'Assistente Silenzioso a Frizione Zero",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.secondary
-                )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "SmartGrocery",
+                        style = MaterialTheme.typography.headlineLarge,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "L'Assistente Silenzioso a Frizione Zero",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+                IconButton(
+                    onClick = { viewModel.showLocalAiSettingsDialog.value = true },
+                    modifier = Modifier.testTag("home_settings_gear")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Impostazioni",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
             }
         }
 
@@ -381,63 +400,7 @@ fun HomeScreen(
             }
         }
 
-        // PASSIVE GEOFENCE SIMULATION PANEL (for testing & UX review)
-        item {
-            Card(
-                shape = RoundedCornerShape(28.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.CellTower,
-                            contentDescription = "Simulate Geofence",
-                            tint = SemanticYellow,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Simulatore di Geofencing",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Simula l'allontanamento fisico da uno di questi supermercati sensibili per attivare il trigger della sbarra di pagamento passiva.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = { viewModel.triggerSimulatedGeofenceEntrance("Esselunga") },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
-                            shape = RoundedCornerShape(24.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("simulate_geofence_esselunga")
-                        ) {
-                            Text("Esci Esselunga")
-                        }
-                        Button(
-                            onClick = { viewModel.triggerSimulatedGeofenceEntrance("Lidl") },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
-                            shape = RoundedCornerShape(24.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("simulate_geofence_lidl")
-                        ) {
-                            Text("Esci Lidl")
-                        }
-                    }
-                }
-            }
-        }
+
 
         // Small Local Retailers (No-Scan fast totalizer) - Section 8.3
         item {

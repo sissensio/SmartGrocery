@@ -35,12 +35,38 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         val database = AppDatabase.getDatabase(application)
         repository = GroceryRepository(database.groceryDao())
         
-        // Populate comfortable initial demo products for the user to try instantly if database is blank
         viewModelScope.launch {
-            repository.allItems.first().let { list ->
-                if (list.isEmpty()) {
-                    populateInitialDemoData()
+            try {
+                // Remove all mock/simulated pending receipts to guarantee no fake data on startup
+                val pendingList = repository.pendingReceipts.first()
+                pendingList.forEach { pending ->
+                    if (pending.location == "Via Milano, 5" || pending.location == "Corso Sempione, 46" ||
+                        pending.storeName == "Lidl" || pending.storeName == "Esselunga") {
+                        repository.deletePendingReceipt(pending)
+                    }
                 }
+                
+                // Clear out initial demo products if they are present in the persistent SQLite DB
+                val allGItems = repository.allItems.first()
+                allGItems.forEach { item ->
+                    if ((item.name == "Latte Intero" && item.brand == "Granarolo") ||
+                        (item.name == "Fette Biscottate" && item.brand == "Misura") ||
+                        (item.name == "Caffè Arabica" && item.brand == "Lavazza") ||
+                        (item.name == "Sgrassatore Universale" && item.brand == "Chanteclair")) {
+                        repository.deleteItem(item)
+                    }
+                }
+
+                // Clear out any initial demo ledger entries too
+                val allLedger = repository.ledgerEntries.first()
+                allLedger.forEach { entry ->
+                    if ((entry.description == "Spesa Esselunga" && entry.amount == 34.50) ||
+                        (entry.description == "Spesa Coop biologica" && entry.amount == 18.20)) {
+                        repository.deleteLedgerEntry(entry)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error performing startup cleanup of demo data", e)
             }
         }
     }
@@ -71,6 +97,8 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
     var showLocalAiSettingsDialog = MutableStateFlow(false) // Settings dialog state
     var onDeviceAiDiagnosticResult = MutableStateFlow<String>("") // Detailed text of the system AI diagnostics
     var isOnDeviceAiSupported = MutableStateFlow<Boolean?>(null) // State to track compatibility check result
+    var useSimulatedCamera = MutableStateFlow(false) // Simula fotocamera statica
+    var isAdminDeveloperMode = MutableStateFlow(false) // Toggle per attivare pannello sviluppatore/debug
 
     // Immersive Full-Screen Camera state (V4Pro Chapter 5)
     val isFullScreenCameraOpen = MutableStateFlow(false)
@@ -1328,28 +1356,26 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                         newAddress = result.address,
                         newPhone = result.phone
                     )
-                    simulateWebSocketNotification("Gemma-2B On-Device AI: Elaborazione completata localmente (100% Offline)")
+                    simulateWebSocketNotification("Android AICore / Galaxy AI: Elaborazione completata localmente (100% Offline)")
                     return@launch
                 }
 
-                // 2. If the user is Offline (either simulated offline mode or no network) AND the local model is not downloaded or not active
-                if (isOfflineMode.value) {
-                    cancelScannerPreview()
-                    scanError.value = "Impossibile scansionare: saresti offline! Diagnostica e attiva il servizio locale dalle Impostazioni dello scanner per elaborare scontrini offline."
-                    return@launch
-                }
-
-                // 3. Online/LAN mode: check if local server is preferred or if Cloud is unconfigured
-                val useLocalServer = LocalBackendServiceClient.isHostConfigured() && (!GeminiServiceClient.isKeyConfigured() || !isOfflineMode.value)
+                // 3. Dynamic Routing: check SEND_OCR_TO_BACKEND configuration
+                val useLocalServer = com.example.BuildConfig.SEND_OCR_TO_BACKEND
                 
                 val parsedResult = if (useLocalServer) {
+                    if (!LocalBackendServiceClient.isHostConfigured()) {
+                        cancelScannerPreview()
+                        scanError.value = "La configurazione richiede l'IP del backend locale in network_config.json."
+                        return@launch
+                    }
                     // Try processing via local on-premise FastAPI backend
-                    simulateWebSocketNotification("Local Backend Server: Allineamento e parsing in corso...")
+                    simulateWebSocketNotification("Backend Server: Inoltro OCR dell'utente per l'allineamento degli articoli...")
                     val res = LocalBackendServiceClient.scanReceipt(textToParse, elements)
                     if (res == null) {
                         cancelScannerPreview()
-                        val details = LocalBackendServiceClient.lastApiError ?: "Server offline o spento."
-                        scanError.value = "Scansione fallita sul server locale.\nDettagli errore: $details\n\nVerifica che il server FastAPI sia attivo al percorso http://${com.example.BuildConfig.LOCAL_BACKEND_IP}:8000/api/v1/scan ed accessibile sulla stessa rete LAN."
+                        val details = LocalBackendServiceClient.lastApiError ?: "Server offline o non raggiungibile."
+                        scanError.value = "Scansione fallita sul server locale.\nDettagli errore: $details\n\nVerifica che il server sia attivo al percorso http://${com.example.BuildConfig.LOCAL_BACKEND_IP}:8000/api/v1/scan ed accessibile sulla stessa rete LAN."
                         return@launch
                     }
                     res
@@ -1384,9 +1410,9 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                     newPhone = parsedResult.phone
                 )
                 if (useLocalServer) {
-                    simulateWebSocketNotification("Local Backend: Scansione scontrino elaborata offline tramite Llama 3.")
+                    simulateWebSocketNotification("Backend Server: Scansione scontrino elaborata tramite server dedicato.")
                 } else {
-                    simulateWebSocketNotification("Gemini Cloud AI: Scansione scontrino elaborata online.")
+                    simulateWebSocketNotification("Gemini Cloud AI: Scansione scontrino elaborata online tramite Google Cloud AI.")
                 }
 
             } catch (e: Exception) {
@@ -1520,11 +1546,15 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             delay(800)
             modelDownloadProgress.value = 1.0f
 
-            val overallSupported = ((googleAiCorePresent && hasGenerativeAiSdk) || (samsungAiPresent && !isEmulator) || otherAiPresent)
+            val overallSupported = ((googleAiCorePresent && hasGenerativeAiSdk) || (samsungAiPresent && !isEmulator) || otherAiPresent || isAdminDeveloperMode.value)
             isOnDeviceAiSupported.value = overallSupported
             
             if (overallSupported) {
-                sb.append("\n🌟 RISULTATO DIAGNOSTICA: COMPLETATO!\nQuesto dispositivo possiede i coprocessori e i moduli on-device necessari all'attivazione dell'elaborazione intelligente 100% Locale.")
+                if (isAdminDeveloperMode.value && !((googleAiCorePresent && hasGenerativeAiSdk) || (samsungAiPresent && !isEmulator) || otherAiPresent)) {
+                    sb.append("\n🌟 RISULTATO DIAGNOSTICA: SIMULATO PASSED (Modallità Sviluppatore Attiva)!\nCoprocessore AICore simulato con successo.")
+                } else {
+                    sb.append("\n🌟 RISULTATO DIAGNOSTICA: COMPLETATO!\nQuesto dispositivo possiede i coprocessori e i moduli on-device necessari all'attivazione dell'elaborazione intelligente 100% Locale.")
+                }
                 isLocalModelDownloaded.value = true
                 isLocalLlmActive.value = true
             } else {
@@ -1534,7 +1564,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                 } else {
                     sb.append("Questo cellulare non possiede un chipset abilitato all'AI (NPU fisica) o i servizi di sistema nativi preinstallati (Google AICore / Samsung Advanced Intelligence) necessari all'esecuzione di Gemini Nano offline.\n")
                 }
-                sb.append("\n⚠️ L'opzione 'Gemma 100% Offline' è stata disabilitata per prevenire finti caricamenti o malfunzionamenti. Per elaborare scontrini e digitalizzare, si prega di attivare e utilizzare la modalità Cloud AI con la chiave API ufficiale di Gemini.")
+                sb.append("\n⚠️ L'opzione 'AI Locale 100% Offline' è stata disabilitata per prevenire finti caricamenti o malfunzionamenti. Per elaborare scontrini e digitalizzare, si prega di attivare e utilizzare la modalità Cloud AI con la chiave API ufficiale di Gemini.")
                 isLocalModelDownloaded.value = false
                 isLocalLlmActive.value = false
             }
