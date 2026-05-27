@@ -61,6 +61,55 @@ fun GlobalSettingsDialog(
     var exportProgress by remember { mutableStateOf("") }
     var showUnsupportedAlert by remember { mutableStateOf(false) }
     var manualOcrText by remember { mutableStateOf("") }
+    
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val biometricState by viewModel.biometricSignatureState.collectAsState()
+
+    LaunchedEffect(biometricState) {
+        val state = biometricState
+        if (state != null) {
+            val (challenge, signature, activity) = state
+            try {
+                val cryptoObject = androidx.biometric.BiometricPrompt.CryptoObject(signature)
+                val promptInfo = androidx.biometric.BiometricPrompt.PromptInfo.Builder()
+                    .setTitle("Accesso Biometrico")
+                    .setSubtitle("Conferma identità per lo sblocco")
+                    .setNegativeButtonText("Annulla")
+                    .build()
+                
+                val prompt = androidx.biometric.BiometricPrompt(
+                    activity,
+                    androidx.core.content.ContextCompat.getMainExecutor(activity),
+                    object : androidx.biometric.BiometricPrompt.AuthenticationCallback() {
+                        override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                            viewModel.cancelBiometricLogin("Errore biometrico: $errString")
+                        }
+                        override fun onAuthenticationSucceeded(result: androidx.biometric.BiometricPrompt.AuthenticationResult) {
+                            val authSig = result.cryptoObject?.signature
+                            if (authSig != null) {
+                                try {
+                                    authSig.update(challenge.toByteArray(Charsets.UTF_8))
+                                    val signed = authSig.sign()
+                                    val hexSigned = signed.joinToString("") { "%02x".format(it) }
+                                    viewModel.finalizeBiometricLogin(challenge, hexSigned)
+                                } catch (e: Exception) {
+                                    viewModel.cancelBiometricLogin("Firma rifiutata hardware.")
+                                }
+                            } else {
+                                viewModel.cancelBiometricLogin("Firma crittografica non generata.")
+                            }
+                        }
+                        override fun onAuthenticationFailed() {
+                            viewModel.cancelBiometricLogin("Impronta non riconosciuta.")
+                        }
+                    }
+                )
+                prompt.authenticate(promptInfo, cryptoObject)
+            } catch (e: Exception) {
+                viewModel.cancelBiometricLogin("Errore lancio prompt.")
+            }
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -404,7 +453,12 @@ fun GlobalSettingsDialog(
                                         HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                                         
                                         Button(
-                                            onClick = { viewModel.performBiometricLogin() },
+                                            onClick = { 
+                                                val fragmentActivity = context as? androidx.fragment.app.FragmentActivity
+                                                if (fragmentActivity != null) {
+                                                    viewModel.performBiometricLogin(fragmentActivity)
+                                                }
+                                            },
                                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
                                             shape = RoundedCornerShape(12.dp),
                                             modifier = Modifier.fillMaxWidth().testTag("biometric_login_quick_button")

@@ -2118,27 +2118,17 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun performBiometricLogin() {
+    val biometricSignatureState = MutableStateFlow<Triple<String, java.security.Signature, androidx.fragment.app.FragmentActivity>?>(null)
+
+    fun performBiometricLogin(activity: androidx.fragment.app.FragmentActivity) {
         viewModelScope.launch {
             isAuthLoading.value = true
             lastAuthError.value = null
             val challenge = LocalBackendServiceClient.getBiometricChallenge(deviceUuid.value)
             if (challenge != null) {
-                val signed = com.example.api.BiometricKeyManager.signChallenge(challenge)
-                if (signed != null) {
-                    val res = LocalBackendServiceClient.loginBiometric(deviceUuid.value, challenge, signed)
-                    isAuthLoading.value = false
-                    if (res != null) {
-                        userToken.value = res.accessToken
-                        val prefs = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE)
-                        prefs.edit().putString("user_token", res.accessToken).apply()
-                        simulateWebSocketNotification("Sblocco Biometrico Eseguito con successo! Sessione attiva.")
-                        // Fresh pull
-                        val list = LocalBackendServiceClient.getUnreadNotifications(res.accessToken, deviceUuid.value)
-                        notificationsList.value = list
-                    } else {
-                        lastAuthError.value = "Firma biometrica scartata dal server o IP non configurato."
-                    }
+                val signature = com.example.api.BiometricKeyManager.getSignatureObject()
+                if (signature != null) {
+                    biometricSignatureState.value = Triple(challenge, signature, activity)
                 } else {
                     isAuthLoading.value = false
                     lastAuthError.value = "Contratto di firma biometrica fallito localmente."
@@ -2148,6 +2138,31 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                 lastAuthError.value = "Impossibile ricavare un challenge di verifica dal server backend."
             }
         }
+    }
+    
+    fun finalizeBiometricLogin(challenge: String, signatureHex: String) {
+        viewModelScope.launch {
+            val res = LocalBackendServiceClient.loginBiometric(deviceUuid.value, challenge, signatureHex)
+            isAuthLoading.value = false
+            biometricSignatureState.value = null
+            if (res != null) {
+                userToken.value = res.accessToken
+                val prefs = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE)
+                prefs.edit().putString("user_token", res.accessToken).apply()
+                simulateWebSocketNotification("Sblocco Biometrico Eseguito con successo! Sessione attiva.")
+                // Fresh pull
+                val list = LocalBackendServiceClient.getUnreadNotifications(res.accessToken, deviceUuid.value)
+                notificationsList.value = list
+            } else {
+                lastAuthError.value = "Firma biometrica scartata dal server o IP non configurato."
+            }
+        }
+    }
+    
+    fun cancelBiometricLogin(error: String = "Autenticazione Fallita") {
+        isAuthLoading.value = false
+        biometricSignatureState.value = null
+        lastAuthError.value = error
     }
 
     fun logout() {

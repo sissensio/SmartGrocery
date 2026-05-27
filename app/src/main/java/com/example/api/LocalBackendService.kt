@@ -122,6 +122,7 @@ object BiometricKeyManager {
                 .setDigests(KeyProperties.DIGEST_SHA256)
                 .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
                 .setKeySize(2048)
+                .setUserAuthenticationRequired(true)
                 .build()
 
             kpg.initialize(parameterSpec)
@@ -145,15 +146,13 @@ object BiometricKeyManager {
         }
     }
 
-    fun signChallenge(challenge: String): String? {
+    fun getSignatureObject(): Signature? {
         try {
             val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
             val privateKey = keyStore.getKey(KEY_ALIAS, null) as PrivateKey
             val signature = Signature.getInstance("SHA256withRSA")
             signature.initSign(privateKey)
-            signature.update(challenge.toByteArray(Charsets.UTF_8))
-            val sigBytes = signature.sign()
-            return sigBytes.joinToString("") { "%02x".format(it) }
+            return signature
         } catch (e: Exception) {
             e.printStackTrace()
             return null
