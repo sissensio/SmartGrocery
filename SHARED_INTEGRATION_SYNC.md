@@ -113,6 +113,31 @@ Il backend supporta notifiche mirate in base alle abitudini d'acquisto dell'uten
 Quando l'utente finalizza ed integra uno scontrino scansionato:
 * Chiamare `POST /api/v1/ledger` inviando l'anagrafica negozio e la lista articoli.
 * **Headers**: `Authorization: Bearer <token>` e `X-Device-ID: <device_uuid>`.
+* **Payload JSON (LedgerCreate)**:
+  ```json
+  {
+    "storeName": "Lidl",
+    "vatNumber": "12345678901",
+    "address": "Via Milano, 5",
+    "phone": "02123456",
+    "amount": 8.96,
+    "category": "Dispensa",
+    "paid_by": "Io",
+    "is_shared": true,
+    "date": "2026-05-27",
+    "items": [
+      {
+        "name": "Zucchine",
+        "brand": "",
+        "category": "Frutta e Verdura",
+        "price": 6.07,
+        "unitPrice": 4.5,
+        "weight": 1.348,
+        "barcode": ""
+      }
+    ]
+  }
+  ```
 * Il server verificherà lo stato del dispositivo ed applicherà eventuali limiti di transazione ad-hoc configurati dall'amministratore (restituendo un HTTP 403 in caso di superamento limiti), registrando asincronamente lo storico dei prezzi degli articoli per analizzare l'andamento del mercato e calcolare gli alert di sgrammatura (Shrinkflation).
 
 ---
