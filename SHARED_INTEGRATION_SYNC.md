@@ -52,6 +52,7 @@ Ogni agente compila questa tabella dopo modifiche rilevanti per evitare regressi
 | **2026-05-27 19:40** | AI Studio | `SyncNotificationAcksWorker.kt`, `GroceryViewModel.kt`, `LocalBackendService.kt`, `HomeScreen.kt`, `build.gradle.kts` | **Frontend Integration - Notifications & Limits**: Implementato `SyncNotificationAcksWorker` con Android WorkManager per gestire la sincronizzazione differita e in background degli acknowledge delle notifiche lettate in modalità offline verso il backend locale. Inserite chiamate di polling automatico e queue del worker all'avvio. Esteso `LocalBackendService` per includere correttamente l'header `X-Device-ID` e gestire lo state flow dell'app. Aggiunto `AlertDialog` in `HomeScreen` per la notifica tempestiva dei superamenti del limite transazione (HTTP 403). Risolti problemi di test (NPE nei Robolectric suites) anticipando le inizializzazioni dello stato offline. | ✅ Allineato & Compilato |
 | **2026-05-27 19:55** | AI Studio | `network_config.json`, `BiometricKeyManager`, `GroceryViewModel.kt`, `GlobalSettingsScreen.kt`, `MainActivity.kt` | **IP Update & Biometric RSA Integration**: Aggiornato IP LAN a `192.168.111.101`. Completata implementazione del flusso 4.1 "Registrazione & Login Biometrico": aggiunto `androidx.biometric:biometric` al progetto, convertito `MainActivity` a `FragmentActivity`, aggiunto `.setUserAuthenticationRequired(true)` in `KeyGenParameterSpec` e implementato l'intero ciclo interattivo asincrono con `androidx.biometric.BiometricPrompt` nella UI (`GlobalSettingsScreen.kt`) per firmare in locale il challenge (nonce) del backend tramite chiavi RSA hardware sicure. | ✅ Allineato & Compilato |
 | **2026-05-27 21:08** | AI Studio | `LocalBackendService.kt` | **Fix Payload 422 `submitLedgerEntry`**: Corretto JSON payload verso l'endpoint `POST /api/v1/ledger`. Sistemata incompatibilità del DTO `LedgerSubmitRequest` ("store_name" in "storeName" e "timestamp" in "date" stringata YYYY-MM-DD), per allineamento esatto allo schema Pydantic atteso. | ✅ Allineato & Compilato |
+| **2026-05-27 23:45** | Antigravity | `backend/models.py`, `backend/schemas.py`, `backend/routers/ledger_router.py`, `backend/tests/test_ledger_idempotency.py` | **Offline-First Receipt Sync & Idempotency Key**: Aggiunto supporto a `client_uuid` nel DB, negli schemi Pydantic e nell'endpoint `POST /api/v1/ledger`. Implementato controllo di idempotenza: se lo scontrino è già presente per quell'utente, ritorna la risorsa esistente (HTTP 200/201) prevenendo la duplicazione di spese ed articoli in caso di retry di rete. Creati ed eseguiti con successo test automatici della suite 4. | ✅ Sincronizzato & Pushed |
 
 ---
 
@@ -110,14 +111,25 @@ Il backend supporta notifiche mirate in base alle abitudini d'acquisto dell'uten
    * Quando l'utente visualizza o cancella una notifica, chiamare `POST /api/v1/notifications/{id}/ack` con payload `{ "device_uuid": "..." }`.
    * **Offline Mode (Room Cache)**: Se il telefono è offline, salvare la notifica letta nella tabella Room locale `notification_acks`. Impostare un `CoroutineWorker` con Android `WorkManager` (configurato con vincolo `NetworkType.CONNECTED`) che provveda a sincronizzare in batch le ricevute di ritorno pendenti non appena la connettività di rete viene ripristinata.
 
-### 🛍️ 4.3 Registrazione Spesa (Ledger) & Limiti Dispositivo
+### 🛍️ 4.3 Registrazione Spesa (Ledger) & Sincronizzazione Offline-First (Idempotenza)
 Quando l'utente finalizza ed integra uno scontrino scansionato:
-* Chiamare `POST /api/v1/ledger` inviando l'anagrafica negozio e la lista articoli.
-* **Headers**: `Authorization: Bearer <token>` e `X-Device-ID: <device_uuid>`.
-* Il server verificherà lo stato del dispositivo ed applicherà eventuali limiti di transazione ad-hoc configurati dall'amministratore (restituendo un HTTP 403 in caso di superamento limiti), registrando asincronamente lo storico dei prezzi degli articoli per analizzare l'andamento del mercato e calcolare gli alert di sgrammatura (Shrinkflation).
+1. **Generazione client_uuid locale**: L'app Android genera un `client_uuid` univoco (es. `UUID.randomUUID().toString()`) per ogni spesa inserita.
+2. **Salvataggio Room locale**: Lo scontrino viene salvato immediatamente nel database Room locale con `client_uuid` impostato e il flag `is_synced` impostato a `false`. La UI mostra subito lo scontrino per evitare tempi di attesa.
+3. **Invio HTTP asincrono**: L'app effettua la POST a `POST /api/v1/ledger`.
+   * **Headers**: `Authorization: Bearer <token>` e `X-Device-ID: <device_uuid>`.
+   * **Payload (LedgerCreate)**: Include il nuovo campo `client_uuid` (stringa UUID).
+4. **Verifica Idempotenza sul Backend**:
+   * Se il server riceve un `client_uuid` già registrato per quell'utente, **ignora la creazione duplicata** e restituisce lo scontrino esistente con `200 OK`.
+   * Se è un `client_uuid` nuovo, registra normalmente ed inserisce gli articoli nello storico prezzi in `ItemPriceHistory`, ritornando `201 Created`.
+5. **WorkManager Fallback (Offline Mode / Server Error 5xx)**:
+   * Se il telefono è offline o il server restituisce un errore temporaneo, lo scontrino rimane in Room con `is_synced = false`.
+   * Un background `SyncLedgerWorker` gestito da Android **WorkManager** (configurato con vincolo di connettività di rete `NetworkType.CONNECTED`) interroga periodicamente Room per trovare spese con `is_synced == false` e le invia una ad una a `POST /api/v1/ledger`.
+   * Una volta completato il sync con successo, il worker aggiorna `is_synced = true` su Room.
+6. **UI State**: Accanto agli scontrini non ancora sincronizzati (con `is_synced == false`), la lista transazioni deve mostrare un indicatore visivo discreto (es. icona di sincronizzazione o cloud-pending).
 
 ---
 
 > [!TIP]
 > **Consiglio per AI Studio (Frontend)**:
 > Tutti gli endpoint sopra indicati sono pronti e auto-documentati nel pannello interattivo Swagger UI all'indirizzo `http://<LOCAL_BACKEND_IP>:8000/docs` una volta avviato il backend locale. AI Studio può avviare l'emulatore Android, effettuare il `git pull` per aggiornare `network_config.json` contenente l'IP dinamico locale del server, e avviare l'integrazione Kotlin con i router ed i contratti definiti.
+
