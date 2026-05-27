@@ -34,6 +34,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
     val deviceUuid = MutableStateFlow<String>("")
     val userToken = MutableStateFlow<String?>(null)
     val userEmail = MutableStateFlow<String?>(null)
+    val userRole = MutableStateFlow<String?>(null)
     val isBiometricEnabled = MutableStateFlow<Boolean>(false)
     val lastAuthError = MutableStateFlow<String?>(null)
     val isAuthLoading = MutableStateFlow<Boolean>(false)
@@ -61,6 +62,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         
         userToken.value = prefs.getString("user_token", null)
         userEmail.value = prefs.getString("user_email", "sissensio@gmail.com") // Prepopulated custom user email
+        userRole.value = prefs.getString("user_role", null)
         isBiometricEnabled.value = com.example.api.BiometricKeyManager.isKeyGenerated()
 
         viewModelScope.launch {
@@ -2050,10 +2052,12 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             if (res != null) {
                 userEmail.value = email
                 userToken.value = res.accessToken
+                userRole.value = res.role
                 val prefs = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE)
                 prefs.edit()
                     .putString("user_token", res.accessToken)
                     .putString("user_email", email)
+                    .putString("user_role", res.role)
                     .apply()
                 simulateWebSocketNotification("Accesso effettuato! Benvenuto, $email.")
                 // Fresh pull
@@ -2119,8 +2123,12 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             biometricSignatureState.value = null
             if (res != null) {
                 userToken.value = res.accessToken
+                userRole.value = res.role
                 val prefs = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE)
-                prefs.edit().putString("user_token", res.accessToken).apply()
+                prefs.edit()
+                    .putString("user_token", res.accessToken)
+                    .putString("user_role", res.role)
+                    .apply()
                 simulateWebSocketNotification("Sblocco Biometrico Eseguito con successo! Sessione attiva.")
                 // Fresh pull
                 enqueueMasterSync()
