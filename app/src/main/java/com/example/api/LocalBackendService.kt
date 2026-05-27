@@ -227,16 +227,31 @@ object LocalBackendServiceClient {
     suspend fun registerUser(email: String, authKey: String): Boolean = withContext(Dispatchers.IO) {
         lastApiError = null
         if (!isHostConfigured()) return@withContext false
-        val url = "${getBaseUrl()}/api/v1/auth/register-dummy"
+        val url = "${getBaseUrl()}/api/v1/auth/register"
         
-        val json = """{"email":"$email","password":"$authKey"}"""
+        // Genera un nome utente e un nome famiglia eleganti partendo dal prefisso dell'email
+        val namePrefix = email.substringBefore("@").replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+        
+        val json = """
+            {
+                "email": "$email",
+                "password": "$authKey",
+                "full_name": "$namePrefix",
+                "household_name": "Famiglia $namePrefix"
+            }
+        """.trimIndent()
+        
         val request = Request.Builder()
             .url(url)
             .post(json.toRequestBody("application/json".toMediaType()))
             .build()
         try {
             client.newCall(request).execute().use { response ->
-                return@withContext response.isSuccessful
+                if (!response.isSuccessful) {
+                    lastApiError = response.body?.string() ?: "Errore server: ${response.code}"
+                    return@withContext false
+                }
+                return@withContext true
             }
         } catch (e: Exception) {
             lastApiError = e.localizedMessage
