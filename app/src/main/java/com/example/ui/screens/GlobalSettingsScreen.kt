@@ -563,210 +563,59 @@ fun GlobalSettingsDialog(
                     }
 
                     // SECTION 4: DEVELOPER OPTIONS & DEBUGGING SIMULATORS
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = "OPZIONI SVILUPPATORE / DEBUG",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Card(
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "Modalità sviluppatore",
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            text = "Attiva strumenti di diagnosi, simulatore di geofence e fallback camera per testare offline.",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                    if (userRole == "ADMIN") {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "OPZIONI SVILUPPATORE / DEBUG",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+
+                                    var revealKey by remember { mutableStateOf(false) }
+                                    var showRevealDialog by remember { mutableStateOf(false) }
+
+                                    if (showRevealDialog) {
+                                        AlertDialog(
+                                            onDismissRequest = { showRevealDialog = false },
+                                            title = { Text("Attenzione") },
+                                            text = { Text("Sei sicuro di voler mostrare la chiave API in chiaro? Attenzione agli schermi condivisi.") },
+                                            confirmButton = {
+                                                TextButton(onClick = { revealKey = true; showRevealDialog = false }) {
+                                                    Text("Rivela")
+                                                }
+                                            },
+                                            dismissButton = {
+                                                TextButton(onClick = { showRevealDialog = false }) {
+                                                    Text("Annulla")
+                                                }
+                                            }
                                         )
                                     }
-                                    Switch(
-                                        checked = isAdminDeveloperMode,
-                                        onCheckedChange = { checked ->
-                                            viewModel.isAdminDeveloperMode.value = checked
-                                        },
-                                        modifier = Modifier.testTag("settings_developer_mode_switch")
-                                    )
-                                }
 
-                                AnimatedVisibility(
-                                    visible = isAdminDeveloperMode,
-                                    enter = expandVertically() + fadeIn(),
-                                    exit = shrinkVertically() + fadeOut()
-                                ) {
-                                    Column(
-                                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                                        modifier = Modifier.padding(top = 12.dp)
-                                    ) {
-                                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
-
-                                        // Diagnostics Section
-                                        if (userRole == "ADMIN") {
-                                            var revealKey by remember { mutableStateOf(false) }
-                                            var showRevealDialog by remember { mutableStateOf(false) }
-
-                                            if (showRevealDialog) {
-                                                AlertDialog(
-                                                    onDismissRequest = { showRevealDialog = false },
-                                                    title = { Text("Attenzione") },
-                                                    text = { Text("Sei sicuro di voler mostrare la chiave API in chiaro? Attenzione agli schermi condivisi.") },
-                                                    confirmButton = {
-                                                        TextButton(onClick = { revealKey = true; showRevealDialog = false }) {
-                                                            Text("Rivela")
-                                                        }
-                                                    },
-                                                    dismissButton = {
-                                                        TextButton(onClick = { showRevealDialog = false }) {
-                                                            Text("Annulla")
-                                                        }
-                                                    }
-                                                )
-                                            }
-
-                                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                Text(
-                                                    text = "DIAGNOSTICA CREDENZIALI & CHIAVI",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.secondary
-                                                )
-                                                
-                                                Column(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .background(MaterialTheme.colorScheme.background, RoundedCornerShape(12.dp))
-                                                        .padding(12.dp),
-                                                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                                                ) {
-                                                    // Backend IP
-                                                    Row(
-                                                        modifier = Modifier.fillMaxWidth(),
-                                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        Text(text = "IP Backend:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                                                        Text(text = com.example.BuildConfig.LOCAL_BACKEND_IP, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                    }
-                                                    
-                                                    // Gemini Key
-                                                    val rawKey = com.example.BuildConfig.GEMINI_API_KEY
-                                                    val isKeyValid = rawKey.isNotBlank() && rawKey != "MY_GEMINI_API_KEY"
-                                                    val maskedKey = if (isKeyValid && rawKey.length > 8) "${rawKey.take(9)}...${rawKey.takeLast(3)}" else rawKey
-                                                    
-                                                    Row(
-                                                        modifier = Modifier.fillMaxWidth(),
-                                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        Column(modifier = Modifier.weight(1f)) {
-                                                            Text(text = "Chiave Gemini API:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                                                            if (isKeyValid) {
-                                                                Box(
-                                                                    modifier = Modifier
-                                                                        .padding(top = 4.dp)
-                                                                        .background(SemanticGreen.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
-                                                                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                                                                ) {
-                                                                    Text("Configurata (${rawKey.length} chars)", style = MaterialTheme.typography.labelSmall, color = SemanticGreen, fontWeight = FontWeight.Bold)
-                                                                }
-                                                            } else {
-                                                                Box(
-                                                                    modifier = Modifier
-                                                                        .padding(top = 4.dp)
-                                                                        .background(MaterialTheme.colorScheme.errorContainer, RoundedCornerShape(8.dp))
-                                                                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                                                                ) {
-                                                                    Text("Non configurata / Default", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onErrorContainer, fontWeight = FontWeight.Bold)
-                                                                }
-                                                            }
-                                                        }
-                                                        
-                                                        if (isKeyValid) {
-                                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 8.dp)) {
-                                                                Text(
-                                                                    text = if (revealKey) rawKey else maskedKey,
-                                                                    style = MaterialTheme.typography.bodySmall,
-                                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                                    modifier = Modifier.clickable(enabled = revealKey) {
-                                                                        val clipboardManager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                                                        val clip = android.content.ClipData.newPlainText("API Key", rawKey)
-                                                                        clipboardManager.setPrimaryClip(clip)
-                                                                    }
-                                                                )
-                                                                IconButton(onClick = { if (revealKey) revealKey = false else showRevealDialog = true }) {
-                                                                    Icon(imageVector = if (revealKey) Icons.Default.VisibilityOff else Icons.Default.Visibility, contentDescription = "Mostra Chiave", modifier = Modifier.size(20.dp))
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-
-                                        // Camera simulation
-                                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            Text(
-                                                text = "SIMULATORE DI FOTOCAMERA",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.secondary
-                                            )
+                                    // Target di elaborazione OCR (Gemini vs Backend) e Diagnostica Credenziali
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text(
+                                            text = "TARGET DI ELABORAZIONE OCR & DIAGNOSTICA",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.secondary
+                                        )
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(MaterialTheme.colorScheme.background, RoundedCornerShape(12.dp))
+                                                .padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                                        ) {
                                             Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .background(MaterialTheme.colorScheme.background, RoundedCornerShape(12.dp))
-                                                    .padding(12.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.SpaceBetween
-                                            ) {
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(
-                                                        text = "Simula Messa a Fuoco / OCR",
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                    Text(
-                                                        text = "Disattiva per utilizzare il sensore camera del telefono reale. Attiva per simulare layout statico scontrino.",
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-                                                Switch(
-                                                    checked = useSimulatedCamera,
-                                                    onCheckedChange = { checked ->
-                                                        viewModel.useSimulatedCamera.value = checked
-                                                    },
-                                                    modifier = Modifier.testTag("settings_simulated_camera_switch")
-                                                )
-                                            }
-                                        }
-
-                                        // Target di elaborazione OCR (Gemini vs Backend) - Visibile solo in modalità sviluppatore
-                                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            Text(
-                                                text = "TARGET DI ELABORAZIONE OCR",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.secondary
-                                            )
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .background(MaterialTheme.colorScheme.background, RoundedCornerShape(12.dp))
-                                                    .padding(12.dp),
+                                                modifier = Modifier.fillMaxWidth(),
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.SpaceBetween
                                             ) {
@@ -787,7 +636,7 @@ fun GlobalSettingsDialog(
                                                     )
                                                     Text(
                                                         text = if (com.example.BuildConfig.SEND_OCR_TO_BACKEND) {
-                                                            "L'app invia i testi OCR o scontrini al backend per l'elaborazione (IP: ${com.example.BuildConfig.LOCAL_BACKEND_IP})."
+                                                            "L'app invia i testi OCR o scontrini al backend per l'elaborazione."
                                                         } else {
                                                             "L'app interroga direttamente l'infrastruttura Google Cloud Gemini con connessione sicura via API Key."
                                                         },
@@ -804,10 +653,115 @@ fun GlobalSettingsDialog(
                                                         )
                                                 )
                                             }
-                                        }
 
-                                        // Geofencing simulator relocated from Home
-                                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+
+                                            // Backend IP
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(text = "IP Backend:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                                Text(text = com.example.BuildConfig.LOCAL_BACKEND_IP, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                            
+                                            // Gemini Key
+                                            val rawKey = com.example.BuildConfig.GEMINI_API_KEY
+                                            val isKeyValid = rawKey.isNotBlank() && rawKey != "MY_GEMINI_API_KEY"
+                                            val maskedKey = if (isKeyValid && rawKey.length > 8) "${rawKey.take(9)}...${rawKey.takeLast(3)}" else rawKey
+                                            
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(text = "Chiave Gemini API:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                                    if (isKeyValid) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .padding(top = 4.dp)
+                                                                .background(SemanticGreen.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                                                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                                        ) {
+                                                            Text("Configurata (${rawKey.length} chars)", style = MaterialTheme.typography.labelSmall, color = SemanticGreen, fontWeight = FontWeight.Bold)
+                                                        }
+                                                    } else {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .padding(top = 4.dp)
+                                                                .background(MaterialTheme.colorScheme.errorContainer, RoundedCornerShape(8.dp))
+                                                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                                        ) {
+                                                            Text("Non configurata / Default", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onErrorContainer, fontWeight = FontWeight.Bold)
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                if (isKeyValid) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 8.dp)) {
+                                                        Text(
+                                                            text = if (revealKey) rawKey else maskedKey,
+                                                            style = MaterialTheme.typography.bodySmall,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            modifier = Modifier.clickable(enabled = revealKey) {
+                                                                val clipboardManager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                                                val clip = android.content.ClipData.newPlainText("API Key", rawKey)
+                                                                clipboardManager.setPrimaryClip(clip)
+                                                            }
+                                                        )
+                                                        IconButton(onClick = { if (revealKey) revealKey = false else showRevealDialog = true }) {
+                                                            Icon(imageVector = if (revealKey) Icons.Default.VisibilityOff else Icons.Default.Visibility, contentDescription = "Mostra Chiave", modifier = Modifier.size(20.dp))
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+
+                                    // Camera simulation
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text(
+                                            text = "SIMULATORE DI FOTOCAMERA",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.secondary
+                                        )
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(MaterialTheme.colorScheme.background, RoundedCornerShape(12.dp))
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "Simula Messa a Fuoco / OCR",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    text = "Disattiva per utilizzare il sensore camera del telefono reale. Attiva per simulare layout statico scontrino.",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            Switch(
+                                                checked = useSimulatedCamera,
+                                                onCheckedChange = { checked ->
+                                                    viewModel.useSimulatedCamera.value = checked
+                                                },
+                                                modifier = Modifier.testTag("settings_simulated_camera_switch")
+                                            )
+                                        }
+                                    }
+
+                                    // Geofencing simulator relocated from Home
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                             Text(
                                                 text = "SIMULATORE DI GEOFENCING PASSIVO",
                                                 style = MaterialTheme.typography.labelSmall,
@@ -963,7 +917,6 @@ fun GlobalSettingsDialog(
                                 }
                             }
                         }
-                    }
                     Spacer(modifier = Modifier.height(110.dp))
                 }
             }
