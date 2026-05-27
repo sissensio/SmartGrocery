@@ -53,6 +53,7 @@ Ogni agente compila questa tabella dopo modifiche rilevanti per evitare regressi
 | **2026-05-27 19:55** | AI Studio | `network_config.json`, `BiometricKeyManager`, `GroceryViewModel.kt`, `GlobalSettingsScreen.kt`, `MainActivity.kt` | **IP Update & Biometric RSA Integration**: Aggiornato IP LAN a `192.168.111.101`. Completata implementazione del flusso 4.1 "Registrazione & Login Biometrico": aggiunto `androidx.biometric:biometric` al progetto, convertito `MainActivity` a `FragmentActivity`, aggiunto `.setUserAuthenticationRequired(true)` in `KeyGenParameterSpec` e implementato l'intero ciclo interattivo asincrono con `androidx.biometric.BiometricPrompt` nella UI (`GlobalSettingsScreen.kt`) per firmare in locale il challenge (nonce) del backend tramite chiavi RSA hardware sicure. | ✅ Allineato & Compilato |
 | **2026-05-27 21:08** | AI Studio | `LocalBackendService.kt` | **Fix Payload 422 `submitLedgerEntry`**: Corretto JSON payload verso l'endpoint `POST /api/v1/ledger`. Sistemata incompatibilità del DTO `LedgerSubmitRequest` ("store_name" in "storeName" e "timestamp" in "date" stringata YYYY-MM-DD), per allineamento esatto allo schema Pydantic atteso. | ✅ Allineato & Compilato |
 | **2026-05-27 23:45** | Antigravity | `backend/models.py`, `backend/schemas.py`, `backend/routers/ledger_router.py`, `backend/tests/test_ledger_idempotency.py` | **Offline-First Receipt Sync & Idempotency Key**: Aggiunto supporto a `client_uuid` nel DB, negli schemi Pydantic e nell'endpoint `POST /api/v1/ledger`. Implementato controllo di idempotenza: se lo scontrino è già presente per quell'utente, ritorna la risorsa esistente (HTTP 200/201) prevenendo la duplicazione di spese ed articoli in caso di retry di rete. Creati ed eseguiti con successo test automatici della suite 4. | ✅ Sincronizzato & Pushed |
+| **2026-05-28 00:05** | Antigravity | `backend/routers/sync_router.py`, `backend/schemas.py`, `backend/main.py`, `backend/tests/test_unified_sync.py` | **SmartGrocery Unified Sync Protocol (USP)**: Centralizzato il canale di sincronizzazione mobile in un unico endpoint `POST /api/v1/sync`. Sincronizza in un unico roundtrip atomico gli scontrini offline (con controllo di idempotenza), le conferme di lettura notifiche, e restituisce le notifiche mirate non lette per la segmentazione e lo stato del dispositivo (limiti di spesa). Suite di test 5 completata con successo. | ✅ Sincronizzato & Pushed |
 
 ---
 
@@ -111,21 +112,82 @@ Il backend supporta notifiche mirate in base alle abitudini d'acquisto dell'uten
    * Quando l'utente visualizza o cancella una notifica, chiamare `POST /api/v1/notifications/{id}/ack` con payload `{ "device_uuid": "..." }`.
    * **Offline Mode (Room Cache)**: Se il telefono è offline, salvare la notifica letta nella tabella Room locale `notification_acks`. Impostare un `CoroutineWorker` con Android `WorkManager` (configurato con vincolo `NetworkType.CONNECTED`) che provveda a sincronizzare in batch le ricevute di ritorno pendenti non appena la connettività di rete viene ripristinata.
 
-### 🛍️ 4.3 Registrazione Spesa (Ledger) & Sincronizzazione Offline-First (Idempotenza)
-Quando l'utente finalizza ed integra uno scontrino scansionato:
-1. **Generazione client_uuid locale**: L'app Android genera un `client_uuid` univoco (es. `UUID.randomUUID().toString()`) per ogni spesa inserita.
-2. **Salvataggio Room locale**: Lo scontrino viene salvato immediatamente nel database Room locale con `client_uuid` impostato e il flag `is_synced` impostato a `false`. La UI mostra subito lo scontrino per evitare tempi di attesa.
-3. **Invio HTTP asincrono**: L'app effettua la POST a `POST /api/v1/ledger`.
-   * **Headers**: `Authorization: Bearer <token>` e `X-Device-ID: <device_uuid>`.
-   * **Payload (LedgerCreate)**: Include il nuovo campo `client_uuid` (stringa UUID).
-4. **Verifica Idempotenza sul Backend**:
-   * Se il server riceve un `client_uuid` già registrato per quell'utente, **ignora la creazione duplicata** e restituisce lo scontrino esistente con `200 OK`.
-   * Se è un `client_uuid` nuovo, registra normalmente ed inserisce gli articoli nello storico prezzi in `ItemPriceHistory`, ritornando `201 Created`.
-5. **WorkManager Fallback (Offline Mode / Server Error 5xx)**:
-   * Se il telefono è offline o il server restituisce un errore temporaneo, lo scontrino rimane in Room con `is_synced = false`.
-   * Un background `SyncLedgerWorker` gestito da Android **WorkManager** (configurato con vincolo di connettività di rete `NetworkType.CONNECTED`) interroga periodicamente Room per trovare spese con `is_synced == false` e le invia una ad una a `POST /api/v1/ledger`.
-   * Una volta completato il sync con successo, il worker aggiorna `is_synced = true` su Room.
-6. **UI State**: Accanto agli scontrini non ancora sincronizzati (con `is_synced == false`), la lista transazioni deve mostrare un indicatore visivo discreto (es. icona di sincronizzazione o cloud-pending).
+### 🛍️ 4.3 Canale di Sincronizzazione Centralizzato: Unified Sync Protocol (USP)
+Per massimizzare l'efficienza di rete, ridurre il consumo di batteria del dispositivo Android ed eliminare roundtrip superflui, abbiamo unificato tutti i flussi di sincronizzazione mobile in un unico endpoint centralizzato:
+
+* **Endpoint**: `POST /api/v1/sync`
+* **Headers**: `Authorization: Bearer <token>`
+
+#### 1. Payload di Richiesta (`SyncRequest`)
+L'applicazione mobile invia in background (tramite `MasterSyncWorker`) lo stato pendente non sincronizzato:
+```json
+{
+  "device_uuid": "string (UUID hardware del dispositivo)",
+  "pending_ledger_entries": [
+    {
+      "storeName": "9Agrifarm",
+      "vatNumber": "99988877766",
+      "address": "Via Oglio 12, Milano",
+      "phone": "",
+      "amount": 15.60,
+      "category": "Ortofrutta",
+      "paid_by": "Io",
+      "is_shared": true,
+      "date": "2026-05-27",
+      "client_uuid": "uuid-generato-localmente-1",
+      "items": [
+        {
+          "name": "Zucchine Fresche",
+          "brand": "Biologico",
+          "category": "Ortofrutta",
+          "price": 3.60,
+          "unitPrice": 1.80,
+          "weight": 2.0
+        }
+      ]
+    }
+  ],
+  "pending_notification_acks": [1, 2]
+}
+```
+
+#### 2. Payload di Risposta (`SyncResponse`)
+Il backend risponde con lo stato consolidato e allineato del server:
+```json
+{
+  "server_timestamp": "2026-05-28T00:05:00",
+  "synced_ledger_uuids": ["uuid-generato-localmente-1"],
+  "synced_notification_acks": [1, 2],
+  "new_notifications": [
+    {
+      "id": 3,
+      "title": "Offerta Speciale",
+      "body": "Nuovi sconti su Dispensa da Lidl!",
+      "type": "STORE_SPECIFIC",
+      "target_store_id": 1,
+      "target_city": null,
+      "target_region": null,
+      "created_at": "2026-05-28T00:02:00"
+    }
+  ],
+  "device_status": {
+    "is_blocked": false,
+    "custom_limit": 120.0
+  }
+}
+```
+
+#### 3. Algoritmo di Sincronizzazione per `MasterSyncWorker.kt` (Android Client)
+Nel modulo frontend Android, invece di far girare background worker diversi per notifiche, acks e scontrini, si utilizza un unico **`MasterSyncWorker`** (WorkManager) che gestisce la sincronizzazione in background in modo atomico:
+1. **Raccolta dati locali**:
+   * Estrae da Room gli scontrini con `is_synced == false`.
+   * Estrae da Room gli acknowledge di notifiche non sincronizzati (`notification_acks`).
+2. **Invio Payload**: Effettua la chiamata `POST /api/v1/sync`.
+3. **Ricezione e Allineamento**:
+   * Per ogni UUID in `synced_ledger_uuids`, imposta `is_synced = true` nel database Room locale (rimuovendo l'indicatore visivo di attesa).
+   * Rimuove o contrassegna come sincronizzati gli acks confermati in `synced_notification_acks`.
+   * Inserisce le nuove notifiche ricevute in `new_notifications` nella tabella delle notifiche locali.
+   * Salva e adegua localmente i limiti di spesa e lo stato del dispositivo ricevuti in `device_status`.
 
 ---
 
