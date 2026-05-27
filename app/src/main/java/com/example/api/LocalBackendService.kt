@@ -1,5 +1,8 @@
 package com.example.api
 
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
 import android.util.Log
 import com.example.BuildConfig
 import com.squareup.moshi.Json
@@ -13,6 +16,10 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.security.KeyPairGenerator
+import java.security.KeyStore
+import java.security.PrivateKey
+import java.security.Signature
 import java.util.concurrent.TimeUnit
 
 @JsonClass(generateAdapter = true)
@@ -30,6 +37,137 @@ data class LocalScanRequest(
     @Json(name = "elements") val elements: List<OcrElementDto>? = null
 )
 
+@JsonClass(generateAdapter = true)
+data class AuthRequest(
+    @Json(name = "username") val email: String,
+    @Json(name = "password") val password: String
+)
+
+@JsonClass(generateAdapter = true)
+data class AuthResponse(
+    @Json(name = "access_token") val accessToken: String,
+    @Json(name = "token_type") val tokenType: String,
+    @Json(name = "role") val role: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class BiometricRegisterRequest(
+    @Json(name = "device_uuid") val deviceUuid: String,
+    @Json(name = "public_key_pem") val publicKeyPem: String
+)
+
+@JsonClass(generateAdapter = true)
+data class BiometricChallengeRequest(
+    @Json(name = "device_uuid") val deviceUuid: String
+)
+
+@JsonClass(generateAdapter = true)
+data class BiometricChallengeResponse(
+    @Json(name = "challenge") val challenge: String
+)
+
+@JsonClass(generateAdapter = true)
+data class BiometricLoginRequest(
+    @Json(name = "device_uuid") val deviceUuid: String,
+    @Json(name = "challenge") val challenge: String,
+    @Json(name = "signature_hex") val signatureHex: String
+)
+
+@JsonClass(generateAdapter = true)
+data class BackendNotification(
+    @Json(name = "id") val id: Int,
+    @Json(name = "title") val title: String,
+    @Json(name = "body") val body: String,
+    @Json(name = "type") val type: String, // BROADCAST, GEO, STORE_SPECIFIC
+    @Json(name = "target_store_id") val targetStoreId: Int? = null,
+    @Json(name = "target_city") val targetCity: String? = null,
+    @Json(name = "target_region") val targetRegion: String? = null,
+    @Json(name = "created_at") val createdAt: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class LedgerItemDto(
+    @Json(name = "name") val name: String,
+    @Json(name = "price") val price: Double,
+    @Json(name = "category") val category: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class LedgerSubmitRequest(
+    @Json(name = "store_name") val storeName: String,
+    @Json(name = "amount") val amount: Double,
+    @Json(name = "timestamp") val timestamp: Long,
+    @Json(name = "device_uuid") val deviceUuid: String,
+    @Json(name = "items") val items: List<LedgerItemDto>? = null
+)
+
+object BiometricKeyManager {
+    private const val KEY_ALIAS = "SmartGroceryBiometricKey"
+    private const val ANDROID_KEYSTORE = "AndroidKeyStore"
+
+    fun generateKeyPair(): String? {
+        try {
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            if (keyStore.containsAlias(KEY_ALIAS)) {
+                keyStore.deleteEntry(KEY_ALIAS)
+            }
+            val kpg = KeyPairGenerator.getInstance(
+                KeyProperties.KEY_ALGORITHM_RSA,
+                ANDROID_KEYSTORE
+            )
+            val parameterSpec = KeyGenParameterSpec.Builder(
+                KEY_ALIAS,
+                KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
+            )
+                .setDigests(KeyProperties.DIGEST_SHA256)
+                .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
+                .setKeySize(2048)
+                .build()
+
+            kpg.initialize(parameterSpec)
+            val keyPair = kpg.generateKeyPair()
+            
+            val pubBytes = keyPair.public.encoded
+            val base64Pub = Base64.encodeToString(pubBytes, Base64.NO_WRAP)
+            return "-----BEGIN PUBLIC KEY-----\n$base64Pub\n-----END PUBLIC KEY-----"
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
+        }
+    }
+
+    fun isKeyGenerated(): Boolean {
+        try {
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            return keyStore.containsAlias(KEY_ALIAS)
+        } catch (e: Exception) {
+            return false
+        }
+    }
+
+    fun signChallenge(challenge: String): String? {
+        try {
+            val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            val privateKey = keyStore.getKey(KEY_ALIAS, null) as PrivateKey
+            val signature = Signature.getInstance("SHA256withRSA")
+            signature.initSign(privateKey)
+            signature.update(challenge.toByteArray(Charsets.UTF_8))
+            val sigBytes = signature.sign()
+            return sigBytes.joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
+        }
+    }
+    
+    fun deleteKey() {
+        val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+        if (keyStore.containsAlias(KEY_ALIAS)) {
+            keyStore.deleteEntry(KEY_ALIAS)
+        }
+    }
+}
+
 object LocalBackendServiceClient {
     private const val TAG = "LocalBackendServiceClient"
     
@@ -45,35 +183,23 @@ object LocalBackendServiceClient {
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
         
-    /**
-     * Checks if the dynamic dynamic host IP is set and has a valid format.
-     */
     fun isHostConfigured(): Boolean {
         val ip = BuildConfig.LOCAL_BACKEND_IP
         return !ip.isNullOrBlank() && ip != "0.0.0.0"
     }
 
-    /**
-     * Sends the OCR text and dynamic bounding box coordinate elements to the local FastAPI backend.
-     */
+    private fun getBaseUrl(): String {
+        return "http://${BuildConfig.LOCAL_BACKEND_IP}:8000"
+    }
+
     suspend fun scanReceipt(ocrText: String, elements: List<OcrElementDto>?): ParsingReceiptResult? = withContext(Dispatchers.IO) {
         lastApiError = null
         if (!isHostConfigured()) {
-            lastApiError = "IP host non configurato correttamente in network_config.json."
-            Log.e(TAG, "Dynamic IP is invalid or 0.0.0.0: ${BuildConfig.LOCAL_BACKEND_IP}")
+            lastApiError = "IP host non configurato in network_config.json."
             return@withContext null
         }
-        
-        val backendIp = BuildConfig.LOCAL_BACKEND_IP
-        val url = "http://$backendIp:8000/api/v1/scan"
-        
-        Log.i(TAG, "Sending spatial OCR payload to local backend server at $url...")
-        
-        val requestBodyMoshi = LocalScanRequest(
-            ocrText = ocrText,
-            elements = elements
-        )
-        
+        val url = "${getBaseUrl()}/api/v1/scan"
+        val requestBodyMoshi = LocalScanRequest(ocrText = ocrText, elements = elements)
         val adapter = moshi.adapter(LocalScanRequest::class.java)
         val jsonRequest = adapter.toJson(requestBodyMoshi)
         
@@ -87,23 +213,193 @@ object LocalBackendServiceClient {
                 if (!response.isSuccessful) {
                     val errBody = response.body?.string() ?: ""
                     lastApiError = "HTTP ${response.code}: $errBody"
-                    Log.e(TAG, "Local Backend HTTP Error: ${response.code} ${response.message} - $errBody")
                     return@withContext null
                 }
                 val rawResponse = response.body?.string() ?: return@withContext null
-                Log.d(TAG, "Local Backend Response length: ${rawResponse.length}")
-                
                 val responseAdapter = moshi.adapter(ParsingReceiptResultJson::class.java)
                 return@withContext responseAdapter.fromJson(rawResponse)?.toParsingReceiptResult()
             }
-        } catch (e: IOException) {
-            lastApiError = "Impossibile connettersi al server FastAPI (${e.localizedMessage}). Verifica che il server sia acceso e sulla stessa rete LAN."
-            Log.e(TAG, "Network exception during Local Backend API call at $url", e)
-            return@withContext null
         } catch (e: Exception) {
-            lastApiError = "Errore nel parsing della risposta JSON: ${e.localizedMessage}"
-            Log.e(TAG, "JSON parsing error on Local Backend response", e)
+            lastApiError = e.localizedMessage
             return@withContext null
+        }
+    }
+
+    suspend fun registerUser(email: String, authKey: String): Boolean = withContext(Dispatchers.IO) {
+        lastApiError = null
+        if (!isHostConfigured()) return@withContext false
+        val url = "${getBaseUrl()}/api/v1/auth/register-dummy"
+        
+        val json = """{"email":"$email","password":"$authKey"}"""
+        val request = Request.Builder()
+            .url(url)
+            .post(json.toRequestBody("application/json".toMediaType()))
+            .build()
+        try {
+            client.newCall(request).execute().use { response ->
+                return@withContext response.isSuccessful
+            }
+        } catch (e: Exception) {
+            lastApiError = e.localizedMessage
+            return@withContext false
+        }
+    }
+
+    suspend fun loginUser(email: String, authKey: String): AuthResponse? = withContext(Dispatchers.IO) {
+        lastApiError = null
+        if (!isHostConfigured()) return@withContext null
+        val url = "${getBaseUrl()}/api/v1/auth/token"
+        val requestBody = okhttp3.FormBody.Builder()
+            .add("username", email)
+            .add("password", authKey)
+            .build()
+        val request = Request.Builder()
+            .url(url)
+            .post(requestBody)
+            .build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext null
+                    return@withContext moshi.adapter(AuthResponse::class.java).fromJson(raw)
+                } else {
+                    lastApiError = "Credenziali non valide (HTTP ${response.code})"
+                    return@withContext null
+                }
+            }
+        } catch (e: Exception) {
+            lastApiError = e.localizedMessage
+            return@withContext null
+        }
+    }
+
+    suspend fun registerBiometricKey(token: String, deviceUuid: String, publicKeyPem: String): Boolean = withContext(Dispatchers.IO) {
+        lastApiError = null
+        if (!isHostConfigured()) return@withContext false
+        val url = "${getBaseUrl()}/api/v1/auth/biometric/register"
+        val req = BiometricRegisterRequest(deviceUuid, publicKeyPem)
+        val json = moshi.adapter(BiometricRegisterRequest::class.java).toJson(req)
+        
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", "Bearer $token")
+            .post(json.toRequestBody("application/json".toMediaType()))
+            .build()
+        try {
+            client.newCall(request).execute().use { response ->
+                return@withContext response.isSuccessful
+            }
+        } catch (e: Exception) {
+            return@withContext false
+        }
+    }
+
+    suspend fun getBiometricChallenge(deviceUuid: String): String? = withContext(Dispatchers.IO) {
+        lastApiError = null
+        if (!isHostConfigured()) return@withContext null
+        val url = "${getBaseUrl()}/api/v1/auth/biometric/challenge"
+        val req = BiometricChallengeRequest(deviceUuid)
+        val json = moshi.adapter(BiometricChallengeRequest::class.java).toJson(req)
+        
+        val request = Request.Builder()
+            .url(url)
+            .post(json.toRequestBody("application/json".toMediaType()))
+            .build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext null
+                    return@withContext moshi.adapter(BiometricChallengeResponse::class.java).fromJson(raw)?.challenge
+                }
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            return@withContext null
+        }
+    }
+
+    suspend fun loginBiometric(deviceUuid: String, challenge: String, signatureHex: String): AuthResponse? = withContext(Dispatchers.IO) {
+        lastApiError = null
+        if (!isHostConfigured()) return@withContext null
+        val url = "${getBaseUrl()}/api/v1/auth/biometric/login"
+        val req = BiometricLoginRequest(deviceUuid, challenge, signatureHex)
+        val json = moshi.adapter(BiometricLoginRequest::class.java).toJson(req)
+        val request = Request.Builder()
+            .url(url)
+            .post(json.toRequestBody("application/json".toMediaType()))
+            .build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext null
+                    return@withContext moshi.adapter(AuthResponse::class.java).fromJson(raw)
+                }
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            return@withContext null
+        }
+    }
+
+    suspend fun getUnreadNotifications(token: String?, deviceUuid: String): List<BackendNotification> = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext emptyList()
+        val url = "${getBaseUrl()}/api/v1/notifications/unread?device_uuid=$deviceUuid"
+        val reqBuilder = Request.Builder().url(url)
+            .header("X-Device-ID", deviceUuid)
+        if (token != null) {
+            reqBuilder.header("Authorization", "Bearer $token")
+        }
+        val request = reqBuilder.build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext emptyList()
+                    val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, BackendNotification::class.java)
+                    return@withContext moshi.adapter<List<BackendNotification>>(type).fromJson(raw) ?: emptyList()
+                }
+                return@withContext emptyList()
+            }
+        } catch (e: Exception) {
+            return@withContext emptyList()
+        }
+    }
+
+    suspend fun acknowledgeNotification(token: String?, id: Int, deviceUuid: String): Boolean = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext false
+        val url = "${getBaseUrl()}/api/v1/notifications/$id/ack"
+        val json = """{"device_uuid":"$deviceUuid"}"""
+        val reqBuilder = Request.Builder().url(url)
+            .header("X-Device-ID", deviceUuid)
+        if (token != null) {
+            reqBuilder.header("Authorization", "Bearer $token")
+        }
+        val request = reqBuilder.post(json.toRequestBody("application/json".toMediaType())).build()
+        try {
+            client.newCall(request).execute().use { response ->
+                return@withContext response.isSuccessful
+            }
+        } catch (e: Exception) {
+            return@withContext false
+        }
+    }
+
+    suspend fun submitLedgerEntry(token: String?, deviceUuid: String, storeName: String, amount: Double, timestamp: Long, items: List<LedgerItemDto>?): Int = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext 250
+        val url = "${getBaseUrl()}/api/v1/ledger"
+        val req = LedgerSubmitRequest(storeName, amount, timestamp, deviceUuid, items)
+        val json = moshi.adapter(LedgerSubmitRequest::class.java).toJson(req)
+        val reqBuilder = Request.Builder().url(url)
+            .header("X-Device-ID", deviceUuid)
+        if (token != null) {
+            reqBuilder.header("Authorization", "Bearer $token")
+        }
+        val request = reqBuilder.post(json.toRequestBody("application/json".toMediaType())).build()
+        try {
+            client.newCall(request).execute().use { response ->
+                return@withContext response.code
+            }
+        } catch (e: Exception) {
+            return@withContext 500
         }
     }
 }

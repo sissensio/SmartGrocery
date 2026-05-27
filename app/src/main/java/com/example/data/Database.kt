@@ -84,11 +84,24 @@ interface GroceryDao {
 
     @Delete
     suspend fun deleteStore(store: StoreInfo)
+
+    // --- Notification Acks (Offline Queue) ---
+    @Query("SELECT * FROM notification_acks WHERE isSynced = 0")
+    suspend fun getUnsyncedNotificationAcks(): List<NotificationAck>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertNotificationAck(ack: NotificationAck): Long
+
+    @Update
+    suspend fun updateNotificationAck(ack: NotificationAck)
+
+    @Query("DELETE FROM notification_acks WHERE isSynced = 1")
+    suspend fun deleteSyncedNotificationAcks()
 }
 
 @Database(
-    entities = [GroceryItem::class, PendingReceipt::class, LedgerEntry::class, StoreInfo::class],
-    version = 4,
+    entities = [GroceryItem::class, PendingReceipt::class, LedgerEntry::class, StoreInfo::class, NotificationAck::class],
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

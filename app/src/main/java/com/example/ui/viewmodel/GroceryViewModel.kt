@@ -30,11 +30,56 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
     private val TAG = "GroceryViewModel"
     private val repository: GroceryRepository
 
+    // --- Device UUID and authentication security states ---
+    val deviceUuid = MutableStateFlow<String>("")
+    val userToken = MutableStateFlow<String?>(null)
+    val userEmail = MutableStateFlow<String?>(null)
+    val isBiometricEnabled = MutableStateFlow<Boolean>(false)
+    val lastAuthError = MutableStateFlow<String?>(null)
+    val isAuthLoading = MutableStateFlow<Boolean>(false)
+    val isLedgerSubmitting = MutableStateFlow<Boolean>(false)
+    
+    // Dialog / error for Transaction Limit Exceeded (HTTP 403)
+    val transactionLimitAlertMessage = MutableStateFlow<String?>(null)
+    
+    // --- Unread Notifications state ---
+    val notificationsList = MutableStateFlow<List<com.example.api.BackendNotification>>(emptyList())
+    
+    // UI state states (Initialized above init block to prevent NPE in immediate Coroutines inside test suites)
+    var isOfflineMode = MutableStateFlow(false)
+
     // Initial Database Setup
     init {
         val database = AppDatabase.getDatabase(application)
         repository = GroceryRepository(database.groceryDao())
         
+        val prefs = application.getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE)
+        var uuid = prefs.getString("device_uuid", null)
+        if (uuid == null) {
+            uuid = java.util.UUID.randomUUID().toString()
+            prefs.edit().putString("device_uuid", uuid).apply()
+        }
+        deviceUuid.value = uuid
+        
+        userToken.value = prefs.getString("user_token", null)
+        userEmail.value = prefs.getString("user_email", "sissensio@gmail.com") // Prepopulated custom user email
+        isBiometricEnabled.value = com.example.api.BiometricKeyManager.isKeyGenerated()
+        
+        // Polling loop for notification fetching every 15 seconds
+        viewModelScope.launch {
+            while (true) {
+                if (!isOfflineMode.value && LocalBackendServiceClient.isHostConfigured()) {
+                    try {
+                        val list = LocalBackendServiceClient.getUnreadNotifications(userToken.value, deviceUuid.value)
+                        notificationsList.value = list
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Errore durante il polling delle notifiche", e)
+                    }
+                }
+                delay(15000)
+            }
+        }
+
         viewModelScope.launch {
             try {
                 // Remove all mock/simulated pending receipts to guarantee no fake data on startup
@@ -69,6 +114,13 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                 Log.e(TAG, "Error performing startup cleanup of demo data", e)
             }
         }
+        
+        // Sincronizzazione automatica offline con WorkManager delle notifiche lette precedentemente in offline
+        try {
+            com.example.api.SyncNotificationAcksWorker.enqueue(application)
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore durante l'avvio del WorkManager", e)
+        }
     }
 
     // --- State flows ---
@@ -86,7 +138,6 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
 
     // UI state states
     var isGeminiActive = MutableStateFlow(GeminiServiceClient.isKeyConfigured())
-    var isOfflineMode = MutableStateFlow(false)
     var isLocalLlmActive = MutableStateFlow(false) // Of default, off, user can enable it
     var isLocalModelDownloaded = MutableStateFlow(false) // Track if model is downloaded
     var isDownloadingModel = MutableStateFlow(false) // Downloading state
@@ -350,7 +401,37 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
     // --- Core Operations ---
 
     fun toggleOfflineMode() {
-        isOfflineMode.update { !it }
+        val nextMode = !isOfflineMode.value
+        isOfflineMode.value = nextMode
+        if (!nextMode) {
+            viewModelScope.launch {
+                syncOfflineNotificationAcks()
+            }
+        }
+    }
+
+    suspend fun syncOfflineNotificationAcks() {
+        if (isOfflineMode.value || !LocalBackendServiceClient.isHostConfigured()) return
+        try {
+            val unsynced = repository.getUnsyncedNotificationAcks()
+            if (unsynced.isEmpty()) return
+            
+            simulateWebSocketNotification("Sincronizzazione di ${unsynced.size} notifiche lette offline in corso...")
+            var successCount = 0
+            unsynced.forEach { ack ->
+                val ok = LocalBackendServiceClient.acknowledgeNotification(userToken.value, ack.notificationId, ack.deviceUuid)
+                if (ok) {
+                    repository.updateNotificationAck(ack.copy(isSynced = true))
+                    successCount++
+                }
+            }
+            repository.deleteSyncedNotificationAcks()
+            if (successCount > 0) {
+                simulateWebSocketNotification("Sincronizzazione completata: $successCount notifiche confermate col server.")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore durante sync notifiche offline", e)
+        }
     }
 
     fun addItemToList(name: String, brand: String, price: Double, category: String, isShared: Boolean) {
@@ -417,6 +498,36 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             var sharedTotal = 0.0
             val entryTimestamp = scannedReceiptTimestamp.value ?: System.currentTimeMillis()
 
+            for (pair in itemsToInsert) {
+                if (pair.second) {
+                    sharedTotal += pair.first.price
+                }
+            }
+
+            // Verify with FastAPI backend for transaction device limits (HTTP 403 check)
+            var backendSuccess = true
+            var exitCode = 200
+            if (!isOfflineMode.value && LocalBackendServiceClient.isHostConfigured()) {
+                val dtoList = itemsToInsert.map { com.example.api.LedgerItemDto(it.first.name, it.first.price, it.first.category) }
+                exitCode = LocalBackendServiceClient.submitLedgerEntry(
+                    token = userToken.value,
+                    deviceUuid = deviceUuid.value,
+                    storeName = store,
+                    amount = sharedTotal,
+                    timestamp = entryTimestamp,
+                    items = dtoList
+                )
+                if (exitCode == 403) {
+                    backendSuccess = false
+                }
+            }
+
+            if (!backendSuccess) {
+                transactionLimitAlertMessage.value = "ATTENZIONE SVILUPPATORE / LIMITE SUPERATO: Il server backend ha rigettato l'inserimento scontrino. Rilevato superamento del massimale fiduciario autorizzato per scontrino feriale/festivo (HTTP 403)!"
+                simulateWebSocketNotification("Transazione bloccata: limiti fiduciari superati.")
+                return@launch
+            }
+
             // Record store metadata and normalize it in database
             recordStoreTransaction(store, scannedVatNumber.value, scannedAddress.value, scannedPhone.value, entryTimestamp)
 
@@ -445,6 +556,9 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                     Log.e("ConfirmReceipt", "Error verifying if existing receipt has items", e)
                 }
             }
+
+            // Reset sharedTotal for clean items accumulation
+            sharedTotal = 0.0
 
             for (pair in itemsToInsert) {
                 val pItem = pair.first
@@ -1795,6 +1909,30 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
     fun addMicroRetailerSpesa(storeName: String, amount: Double, paidBy: String) {
         viewModelScope.launch {
             val normalizedName = normalizeStoreName(storeName)
+            
+            // Check limits against FastAPI backend (HTTP 403 test)
+            var backendSuccess = true
+            var exitCode = 200
+            if (!isOfflineMode.value && LocalBackendServiceClient.isHostConfigured()) {
+                exitCode = LocalBackendServiceClient.submitLedgerEntry(
+                    token = userToken.value,
+                    deviceUuid = deviceUuid.value,
+                    storeName = normalizedName,
+                    amount = amount,
+                    timestamp = System.currentTimeMillis(),
+                    items = null
+                )
+                if (exitCode == 403) {
+                    backendSuccess = false
+                }
+            }
+
+            if (!backendSuccess) {
+                transactionLimitAlertMessage.value = "ATTENZIONE SVILUPPATORE / LIMITE SUPERATO: Il micro-acquisto rapido è stato bloccato dal server. Questa spesa supera il massimo mensile consentito per questo dispositivo (HTTP 403)!"
+                simulateWebSocketNotification("Transazione rapida bloccata: limiti fiduciari superati.")
+                return@launch
+            }
+
             val entry = LedgerEntry(
                 description = "Acquisto rapido $normalizedName",
                 amount = amount,
@@ -1911,6 +2049,154 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             viewModelScope.launch {
                 cancelScannerPreview()
                 simulateWebSocketNotification("Database inizializzato con successo!")
+            }
+        }
+    }
+
+    // --- Authentication and Cryptographic Biometric methods ---
+    fun performPasswordRegistration(email: String, passHex: String) {
+        viewModelScope.launch {
+            isAuthLoading.value = true
+            lastAuthError.value = null
+            val ok = LocalBackendServiceClient.registerUser(email, passHex)
+            isAuthLoading.value = false
+            if (ok) {
+                simulateWebSocketNotification("Registrazione utente completata! Esegui ora l'accesso.")
+            } else {
+                lastAuthError.value = LocalBackendServiceClient.lastApiError ?: "Errore nella registrazione sul backend."
+            }
+        }
+    }
+
+    fun performPasswordLogin(email: String, passHex: String) {
+        viewModelScope.launch {
+            isAuthLoading.value = true
+            lastAuthError.value = null
+            val res = LocalBackendServiceClient.loginUser(email, passHex)
+            isAuthLoading.value = false
+            if (res != null) {
+                userEmail.value = email
+                userToken.value = res.accessToken
+                val prefs = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putString("user_token", res.accessToken)
+                    .putString("user_email", email)
+                    .apply()
+                simulateWebSocketNotification("Accesso effettuato! Benvenuto, $email.")
+                // Fresh pull
+                val list = LocalBackendServiceClient.getUnreadNotifications(res.accessToken, deviceUuid.value)
+                notificationsList.value = list
+            } else {
+                lastAuthError.value = LocalBackendServiceClient.lastApiError ?: "Impossibile autenticare l'utente."
+            }
+        }
+    }
+
+    fun enrollBiometricKeyPair() {
+        val token = userToken.value
+        if (token == null) {
+            lastAuthError.value = "Esegui prima l'accesso con email e password per associare le impronte digitali."
+            return
+        }
+        viewModelScope.launch {
+            isAuthLoading.value = true
+            val pem = com.example.api.BiometricKeyManager.generateKeyPair()
+            if (pem != null) {
+                val ok = LocalBackendServiceClient.registerBiometricKey(token, deviceUuid.value, pem)
+                isAuthLoading.value = false
+                if (ok) {
+                    isBiometricEnabled.value = true
+                    simulateWebSocketNotification("Cifratura biometrica associata con successo nel KeyStore offline.")
+                } else {
+                    com.example.api.BiometricKeyManager.deleteKey()
+                    lastAuthError.value = "Impossibile congiungere la chiave pubblica con il server FastAPI."
+                }
+            } else {
+                isAuthLoading.value = false
+                lastAuthError.value = "Impossibile produrre le chiavi RSA sul circuito di sicurezza Android."
+            }
+        }
+    }
+
+    fun performBiometricLogin() {
+        viewModelScope.launch {
+            isAuthLoading.value = true
+            lastAuthError.value = null
+            val challenge = LocalBackendServiceClient.getBiometricChallenge(deviceUuid.value)
+            if (challenge != null) {
+                val signed = com.example.api.BiometricKeyManager.signChallenge(challenge)
+                if (signed != null) {
+                    val res = LocalBackendServiceClient.loginBiometric(deviceUuid.value, challenge, signed)
+                    isAuthLoading.value = false
+                    if (res != null) {
+                        userToken.value = res.accessToken
+                        val prefs = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE)
+                        prefs.edit().putString("user_token", res.accessToken).apply()
+                        simulateWebSocketNotification("Sblocco Biometrico Eseguito con successo! Sessione attiva.")
+                        // Fresh pull
+                        val list = LocalBackendServiceClient.getUnreadNotifications(res.accessToken, deviceUuid.value)
+                        notificationsList.value = list
+                    } else {
+                        lastAuthError.value = "Firma biometrica scartata dal server o IP non configurato."
+                    }
+                } else {
+                    isAuthLoading.value = false
+                    lastAuthError.value = "Contratto di firma biometrica fallito localmente."
+                }
+            } else {
+                isAuthLoading.value = false
+                lastAuthError.value = "Impossibile ricavare un challenge di verifica dal server backend."
+            }
+        }
+    }
+
+    fun logout() {
+        userToken.value = null
+        val prefs = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit().remove("user_token").apply()
+        com.example.api.BiometricKeyManager.deleteKey()
+        isBiometricEnabled.value = false
+        simulateWebSocketNotification("Disconnessione effettuata con successo.")
+    }
+
+    fun acknowledgeNotification(notificationId: Int) {
+        viewModelScope.launch {
+            if (isOfflineMode.value) {
+                // Device is offline, cache locally in Room for offline sync
+                val ack = com.example.data.NotificationAck(
+                    notificationId = notificationId,
+                    deviceUuid = deviceUuid.value,
+                    isSynced = false
+                )
+                repository.insertNotificationAck(ack)
+                try {
+                    com.example.api.SyncNotificationAcksWorker.enqueue(getApplication())
+                } catch (e: Exception) {
+                    Log.e(TAG, "Errore enqueue WorkManager", e)
+                }
+                // Filter out locally so visual update is instant! Dynamic design!
+                notificationsList.value = notificationsList.value.filter { it.id != notificationId }
+                simulateWebSocketNotification("Riscontro salvato offline. Verrà sincronizzato non appena tornerai online.")
+            } else {
+                // Online, hit backend immediately
+                val ok = LocalBackendServiceClient.acknowledgeNotification(userToken.value, notificationId, deviceUuid.value)
+                if (ok) {
+                    notificationsList.value = notificationsList.value.filter { it.id != notificationId }
+                } else {
+                    simulateWebSocketNotification("Impossibile connettersi al backend. Riscontro registrato offline.")
+                    val ack = com.example.data.NotificationAck(
+                        notificationId = notificationId,
+                        deviceUuid = deviceUuid.value,
+                        isSynced = false
+                    )
+                    repository.insertNotificationAck(ack)
+                    try {
+                        com.example.api.SyncNotificationAcksWorker.enqueue(getApplication())
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Errore enqueue WorkManager", e)
+                    }
+                    notificationsList.value = notificationsList.value.filter { it.id != notificationId }
+                }
             }
         }
     }

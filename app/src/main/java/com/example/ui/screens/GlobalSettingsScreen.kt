@@ -46,6 +46,15 @@ fun GlobalSettingsDialog(
     val isAdminDeveloperMode by viewModel.isAdminDeveloperMode.collectAsState()
     val ledgerEntries by viewModel.ledgerEntries.collectAsState()
 
+    val token by viewModel.userToken.collectAsState()
+    val userEmailState by viewModel.userEmail.collectAsState()
+    val isBioEnabled by viewModel.isBiometricEnabled.collectAsState()
+    val isAuthLoading by viewModel.isAuthLoading.collectAsState()
+    val authError by viewModel.lastAuthError.collectAsState()
+
+    var localEmailInput by remember { mutableStateOf(userEmailState ?: "sissensio@gmail.com") }
+    var localPassInput by remember { mutableStateOf("") }
+
     var showInitDbConfirmation by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
     var isExporting by remember { mutableStateOf(false) }
@@ -218,6 +227,200 @@ fun GlobalSettingsDialog(
                                     ) {
                                         Text("TEST COMPATIBILITÀ", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                                     }
+                                }
+                            }
+                        }
+                    }
+
+                    // SECTION 2.5: ACCOUNT & SICUREZZA BIOMETRICA CRITTOGRAFICA
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "ACCOUNT & SICUREZZA CRITTOGRAFICA",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                if (token != null) {
+                                    // User is Authenticated!
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                            Icon(
+                                                imageVector = Icons.Default.AccountCircle,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column {
+                                                Text(
+                                                    text = userEmailState ?: "sissensio@gmail.com",
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Text(
+                                                    text = "Sessione attiva via token JWT criptato",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                        
+                                        Button(
+                                            onClick = { viewModel.logout() },
+                                            colors = ButtonDefaults.buttonColors(containerColor = SemanticRed),
+                                            shape = RoundedCornerShape(12.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                        ) {
+                                            Text("ESCI", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
+                                        }
+                                    }
+
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+
+                                    // Biometric Enrollment section
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = "Impronte Digitali e Firma Keystore",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = if (isBioEnabled) "Configurato sul chip hardware di sicurezza" else "Genera e registra chiave pubblica RSA",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+
+                                        if (isBioEnabled) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .background(SemanticGreen.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = SemanticGreen, modifier = Modifier.size(14.dp))
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = "ATTIVO",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = SemanticGreen,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            Button(
+                                                onClick = { viewModel.enrollBiometricKeyPair() },
+                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                                shape = RoundedCornerShape(12.dp),
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                                modifier = Modifier.testTag("enroll_biometric_button")
+                                            ) {
+                                                Text("ABILITA", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // User needs to Authenticate!
+                                    Text(
+                                        text = "Collegamento Account Famiglia",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Registrati o esegui l'accesso per abilitare lo sblocco biometrico crittografico e i canali di notifica mirati dei coinquilini.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+
+                                    OutlinedTextField(
+                                        value = localEmailInput,
+                                        onValueChange = { localEmailInput = it },
+                                        label = { Text("Email Coinquilino o Amministratore") },
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth().testTag("auth_email_field"),
+                                        leadingIcon = { Icon(imageVector = Icons.Default.Email, contentDescription = null) }
+                                    )
+
+                                    OutlinedTextField(
+                                        value = localPassInput,
+                                        onValueChange = { localPassInput = it },
+                                        label = { Text("Password Fiduciaria") },
+                                        shape = RoundedCornerShape(12.dp),
+                                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                        modifier = Modifier.fillMaxWidth().testTag("auth_password_field"),
+                                        leadingIcon = { Icon(imageVector = Icons.Default.Lock, contentDescription = null) }
+                                    )
+
+                                    if (authError != null) {
+                                        Text(
+                                            text = authError ?: "",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = SemanticRed,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(top = 4.dp)
+                                        )
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = { viewModel.performPasswordRegistration(localEmailInput, localPassInput) },
+                                            enabled = localEmailInput.isNotBlank() && localPassInput.isNotBlank() && !isAuthLoading,
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.weight(1f).testTag("register_acc_button")
+                                        ) {
+                                            Text("REGISTRATI", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                                        }
+
+                                        Button(
+                                            onClick = { viewModel.performPasswordLogin(localEmailInput, localPassInput) },
+                                            enabled = localEmailInput.isNotBlank() && localPassInput.isNotBlank() && !isAuthLoading,
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.weight(1f).testTag("login_acc_button")
+                                        ) {
+                                            Text("ACCEDI", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+
+                                    if (isBioEnabled) {
+                                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                                        
+                                        Button(
+                                            onClick = { viewModel.performBiometricLogin() },
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.fillMaxWidth().testTag("biometric_login_quick_button")
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(imageVector = Icons.Default.Fingerprint, contentDescription = null)
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text("ACCEDI CON IMPRONTE DIGITALI", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (isAuthLoading) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         }

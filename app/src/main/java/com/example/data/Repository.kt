@@ -42,4 +42,10 @@ class GroceryRepository(private val dao: GroceryDao) {
     suspend fun insertStore(store: StoreInfo): Long = dao.insertStore(store)
     suspend fun updateStore(store: StoreInfo) = dao.updateStore(store)
     suspend fun deleteStore(store: StoreInfo) = dao.deleteStore(store)
+
+    // --- Notification Acks (Offline Queue) ---
+    suspend fun getUnsyncedNotificationAcks(): List<NotificationAck> = dao.getUnsyncedNotificationAcks()
+    suspend fun insertNotificationAck(ack: NotificationAck): Long = dao.insertNotificationAck(ack)
+    suspend fun updateNotificationAck(ack: NotificationAck) = dao.updateNotificationAck(ack)
+    suspend fun deleteSyncedNotificationAcks() = dao.deleteSyncedNotificationAcks()
 }

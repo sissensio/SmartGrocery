@@ -43,6 +43,9 @@ fun HomeScreen(
     val isOffline by viewModel.isOfflineMode.collectAsState()
     val isGemini by viewModel.isGeminiActive.collectAsState()
 
+    val notifications by viewModel.notificationsList.collectAsState()
+    val limitAlert by viewModel.transactionLimitAlertMessage.collectAsState()
+
     var microStoreName by remember { mutableStateOf("") }
     var microAmount by remember { mutableStateOf("") }
     var microPaidBy by remember { mutableStateOf("Io") }
@@ -98,6 +101,99 @@ fun HomeScreen(
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(16.dp)
                                 )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Targeted Notifications Board (Section 5.5)
+        if (notifications.isNotEmpty()) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                    ),
+                    modifier = Modifier.fillMaxWidth().testTag("notifications_card_holder")
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(imageVector = Icons.Default.NotificationsActive, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Bacheca Coinquilini (${notifications.size})",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+
+                        notifications.forEach { notif ->
+                            Card(
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surface
+                                ),
+                                modifier = Modifier.fillMaxWidth().testTag("notification_item_${notif.id}")
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            val badgeColor = when (notif.type.uppercase()) {
+                                                "GEO" -> com.example.ui.theme.SemanticYellow
+                                                "STORE_SPECIFIC" -> MaterialTheme.colorScheme.primary
+                                                else -> com.example.ui.theme.SemanticBlueInfo
+                                            }
+                                            Box(
+                                                modifier = Modifier
+                                                    .background(badgeColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    text = notif.type,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = badgeColor,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                            if (notif.targetCity != null) {
+                                                Text(
+                                                    text = "📍 ${notif.targetCity}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = notif.title,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = notif.body,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    IconButton(
+                                        onClick = { viewModel.acknowledgeNotification(notif.id) },
+                                        modifier = Modifier.testTag("ack_notif_btn_${notif.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = "Letto",
+                                            tint = com.example.ui.theme.SemanticGreen
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -502,5 +598,44 @@ fun HomeScreen(
         item {
             Box(modifier = Modifier.height(30.dp))
         }
+    }
+
+    if (limitAlert != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.transactionLimitAlertMessage.value = null },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Gavel,
+                    contentDescription = "Blocco Limite Superato",
+                    tint = SemanticRed,
+                    modifier = Modifier.size(36.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "Limite Transazione Superato!",
+                    fontWeight = FontWeight.Bold,
+                    color = SemanticRed,
+                    style = MaterialTheme.typography.titleMedium,
+                    textAlign = TextAlign.Center
+                )
+            },
+            text = {
+                Text(
+                    text = limitAlert ?: "",
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = { viewModel.transactionLimitAlertMessage.value = null },
+                    colors = ButtonDefaults.buttonColors(containerColor = SemanticRed),
+                    modifier = Modifier.testTag("dismiss_limit_dialog_btn")
+                ) {
+                    Text("OK, Ho Capito", color = Color.White)
+                }
+            }
+        )
     }
 }
