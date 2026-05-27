@@ -25,6 +25,9 @@ interface GroceryDao {
     @Query("DELETE FROM items WHERE id = :id")
     suspend fun deleteItemById(id: Int)
 
+    @Query("DELETE FROM items WHERE lastPurchaseTimestamp = :timestamp AND storeName = :storeName")
+    suspend fun deleteItemsByTimestampAndStore(timestamp: Long, storeName: String)
+
     @Query("DELETE FROM items")
     suspend fun deleteAllItems()
 

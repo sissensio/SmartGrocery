@@ -268,7 +268,11 @@ fun StoresScreen(
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                                     shape = RoundedCornerShape(6.dp)
                                 ) {
-                                    val dateStr = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date(store.lastSeen))
+                                    val dateStr = if (store.lastSeen > 0L) {
+                                        SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date(store.lastSeen))
+                                    } else {
+                                        "Nessuna"
+                                    }
                                     Text(
                                         text = "Ultima spesa: $dateStr",
                                         style = MaterialTheme.typography.labelSmall,
@@ -309,7 +313,7 @@ fun StoresScreen(
         // Action Button to add a Store manually
         Button(
             onClick = {
-                storeToEdit = StoreInfo(name = "", displayName = "", vatNumber = null, address = null, phone = null, lastSeen = System.currentTimeMillis())
+                storeToEdit = StoreInfo(name = "", displayName = "", vatNumber = null, address = null, phone = null, lastSeen = 0L)
                 editDisplayName = ""
                 editAddress = ""
                 editVat = ""
@@ -459,7 +463,11 @@ fun StoresScreen(
                                     color = MaterialTheme.colorScheme.primary,
                                     fontWeight = FontWeight.Bold
                                 )
-                                val datetimeStr = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault()).format(Date(store.lastSeen))
+                                val datetimeStr = if (store.lastSeen > 0L) {
+                                    SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault()).format(Date(store.lastSeen))
+                                } else {
+                                    "Nessuna spesa registrata"
+                                }
                                 Text(
                                     text = datetimeStr,
                                     style = MaterialTheme.typography.bodyMedium
@@ -600,7 +608,7 @@ fun StoresScreen(
                                 vatNumber = cleanVat,
                                 address = cleanAddress,
                                 phone = cleanPhone,
-                                lastSeen = System.currentTimeMillis()
+                                lastSeen = 0L
                             )
                             viewModel.saveStore(newStore)
                         } else {
@@ -609,7 +617,7 @@ fun StoresScreen(
                                 vatNumber = cleanVat,
                                 address = cleanAddress,
                                 phone = cleanPhone,
-                                lastSeen = System.currentTimeMillis()
+                                lastSeen = originalStore.lastSeen
                             )
                             viewModel.saveStore(updatedStore)
                         }

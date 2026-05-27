@@ -390,7 +390,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             val entryTimestamp = scannedReceiptTimestamp.value ?: System.currentTimeMillis()
 
             // Record store metadata and normalize it in database
-            recordStoreTransaction(store, scannedVatNumber.value, scannedAddress.value, scannedPhone.value)
+            recordStoreTransaction(store, scannedVatNumber.value, scannedAddress.value, scannedPhone.value, entryTimestamp)
 
             val matchingId = reconciledLedgerEntryId.value ?: 0
             var alreadyHadItems = false
@@ -493,7 +493,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun recordStoreTransaction(rawStoreName: String, vatNumber: String?, address: String?, phone: String?) {
+    fun recordStoreTransaction(rawStoreName: String, vatNumber: String?, address: String?, phone: String?, timestamp: Long? = null) {
         viewModelScope.launch {
             val normalizedName = normalizeStoreName(rawStoreName)
             val cleanVat = vatNumber?.trim()?.takeIf { it.isNotBlank() }
@@ -508,12 +508,14 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                 existingStore = repository.getStoreByName(normalizedName)
             }
 
+            val txTimestamp = timestamp ?: System.currentTimeMillis()
+
             if (existingStore != null) {
                 val updatedStore = existingStore.copy(
                     vatNumber = cleanVat ?: existingStore.vatNumber,
                     address = cleanAddress ?: existingStore.address,
                     phone = cleanPhone ?: existingStore.phone,
-                    lastSeen = System.currentTimeMillis()
+                    lastSeen = if (existingStore.lastSeen > 0L) Math.max(existingStore.lastSeen, txTimestamp) else txTimestamp
                 )
                 repository.updateStore(updatedStore)
                 Log.d("StoreRegistry", "Updated store: $normalizedName")
@@ -524,7 +526,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                     vatNumber = cleanVat,
                     address = cleanAddress,
                     phone = cleanPhone,
-                    lastSeen = System.currentTimeMillis()
+                    lastSeen = txTimestamp
                 )
                 repository.insertStore(newStore)
                 Log.d("StoreRegistry", "Inserted new store: $normalizedName")
@@ -633,7 +635,44 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             if (currentMatch != null) {
                 matchedReceiptInfo.value = currentMatch.copy(amount = scannedTotalAmount.value)
             }
+            
+            // Re-run reconciliation checking on edits so duplicate detection fires instantly
+            val timestamp = scannedReceiptTimestamp.value ?: System.currentTimeMillis()
+            checkForReconciliation(
+                store = scannedStoreName.value,
+                total = scannedTotalAmount.value,
+                timestamp = timestamp,
+                newItems = currentList.map { it.first },
+                newVat = scannedVatNumber.value,
+                newAddress = scannedAddress.value,
+                newPhone = scannedPhone.value
+            )
         }
+    }
+
+    fun addScannedItem(newItem: ParsedItem, isShared: Boolean = true) {
+        val currentList = scannedReceiptItems.value.toMutableList()
+        currentList.add(Pair(newItem, isShared))
+        scannedReceiptItems.value = currentList
+        scannedTotalAmount.value = currentList.sumOf { it.first.price }
+        
+        // Also if there's an active duplicate being integrated/reconciled, update the matched amount target
+        val currentMatch = matchedReceiptInfo.value
+        if (currentMatch != null) {
+            matchedReceiptInfo.value = currentMatch.copy(amount = scannedTotalAmount.value)
+        }
+
+        // Re-run reconciliation checking on edits so duplicate detection fires instantly
+        val timestamp = scannedReceiptTimestamp.value ?: System.currentTimeMillis()
+        checkForReconciliation(
+            store = scannedStoreName.value,
+            total = scannedTotalAmount.value,
+            timestamp = timestamp,
+            newItems = currentList.map { it.first },
+            newVat = scannedVatNumber.value,
+            newAddress = scannedAddress.value,
+            newPhone = scannedPhone.value
+        )
     }
 
     fun deleteScannedItem(index: Int) {
@@ -648,6 +687,18 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             if (currentMatch != null) {
                 matchedReceiptInfo.value = currentMatch.copy(amount = scannedTotalAmount.value)
             }
+
+            // Re-run reconciliation checking on edits so duplicate detection fires instantly
+            val timestamp = scannedReceiptTimestamp.value ?: System.currentTimeMillis()
+            checkForReconciliation(
+                store = scannedStoreName.value,
+                total = scannedTotalAmount.value,
+                timestamp = timestamp,
+                newItems = currentList.map { it.first },
+                newVat = scannedVatNumber.value,
+                newAddress = scannedAddress.value,
+                newPhone = scannedPhone.value
+            )
         }
     }
 
@@ -1026,6 +1077,24 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             val normalizedStore = normalizeStoreName(store)
             val incomingTimestamp = timestamp ?: System.currentTimeMillis()
 
+            // Safe fallback if items list parsed from OCR/API is empty, but there is a non-zero total amount.
+            // E.g., POS payment tickets or low-quality receipt scans.
+            val finalNewItems = if (newItems.isEmpty() && total > 0.0) {
+                listOf(
+                    ParsedItem(
+                        name = "Spesa Scontrino" + if (store.isNotBlank()) " $store" else "",
+                        brand = "Generico",
+                        price = total,
+                        unitPrice = total,
+                        category = "Spesa",
+                        isShared = true,
+                        confidence = 0.95
+                    )
+                )
+            } else {
+                newItems
+            }
+
             val dbEntries = repository.getAllLedgerEntries()
             val existing = dbEntries.find { entry ->
                 val existingStore = extractStoreNameFromDescription(entry.description)
@@ -1070,7 +1139,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                     entry.amount
                 }
 
-                val amountMatch = Math.abs(existingGrandTotal - total) < 0.05
+                val amountMatch = Math.abs(existingGrandTotal - total) < 0.15
                 val dateMatch = isSameDay(entry.timestamp, incomingTimestamp)
 
                 if (vatMismatch) {
@@ -1083,12 +1152,13 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
 
             if (existing != null) {
                 detectedDuplicateLedgerEntryId.value = existing.id
-                userDecisionToReconcile.value = null // Let user decide
-                reconciledLedgerEntryId.value = null // Not forced d'ufficio anymore!
+                userDecisionToReconcile.value = true // Preselect 'Sì, Integra' by default
+                reconciledLedgerEntryId.value = existing.id // Match automatically by default!
 
                 val existingStore = extractStoreNameFromDescription(existing.description)
                 var existingItems: List<ParsedItem> = emptyList()
-                val existingGrandTotal = if (!existing.receiptItemsJson.isNullOrBlank()) {
+                // Read existing items safely if any
+                if (!existing.receiptItemsJson.isNullOrBlank()) {
                     try {
                         val moshiInstance = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
                         val listTypeInstance = Types.newParameterizedType(List::class.java, ParsedItem::class.java)
@@ -1097,6 +1167,16 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                         if (parsed != null) {
                             existingItems = parsed
                         }
+                    } catch (e: Exception) {
+                        Log.e("Reconciliation", "Error parsing existing items", e)
+                    }
+                }
+                val existingGrandTotal = if (!existing.receiptItemsJson.isNullOrBlank()) {
+                    try {
+                        val moshiInstance = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+                        val listTypeInstance = Types.newParameterizedType(List::class.java, ParsedItem::class.java)
+                        val adapter = moshiInstance.adapter<List<ParsedItem>>(listTypeInstance)
+                        val parsed = adapter.fromJson(existing.receiptItemsJson)
                         parsed?.sumOf { it.price } ?: existing.amount
                     } catch (e: Exception) {
                         existing.amount
@@ -1105,7 +1185,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                     existing.amount
                 }
 
-                hasDifferentItemsFromDuplicate.value = !areItemListsSubstantiallySame(existingItems, newItems)
+                hasDifferentItemsFromDuplicate.value = !areItemListsSubstantiallySame(existingItems, finalNewItems)
 
                 val hasPreviousVat = existing.description.contains("PIVA", ignoreCase = true) || existing.receiptItemsJson?.contains("vatNumber") == true
                 val hasPreviousPhone = !existing.receiptItemsJson.isNullOrBlank() && (existing.receiptItemsJson.contains("phone") || existing.receiptItemsJson.contains("telefono") || existing.receiptItemsJson.contains("02-") || existing.receiptItemsJson.contains("347-") || existing.receiptItemsJson.contains("06-"))
@@ -1149,7 +1229,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                     }
                 }
 
-                val merged = mergeItemBreakdowns(previousItems, newItems)
+                val merged = mergeItemBreakdowns(previousItems, finalNewItems)
                 scannedReceiptItems.value = merged.map { Pair(it, it.isShared) }
 
                 val holdsVatNow = !newVat.isNullOrBlank()
@@ -1176,7 +1256,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                 hasDifferentItemsFromDuplicate.value = false
                 matchedReceiptInfo.value = null
                 scannedReceiptTimestamp.value = timestamp ?: System.currentTimeMillis()
-                scannedReceiptItems.value = newItems.map { Pair(it, it.isShared) }
+                scannedReceiptItems.value = finalNewItems.map { Pair(it, it.isShared) }
                 scannedVatNumber.value = newVat
                 scannedAddress.value = newAddress
                 scannedPhone.value = newPhone
@@ -1186,28 +1266,53 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun isValidReceiptOcrText(text: String): Boolean {
+        val clean = text.lowercase().trim()
+        if (clean.length < 20) return false
+        
+        // A receipt must have some digits/numbers
+        val hasDigits = clean.any { it.isDigit() }
+        if (!hasDigits) return false
+        
+        // Check for common Italian/POS receipt keywords
+        val keywords = listOf(
+            "totale", "euro", "eur", "p.iva", "partita", "scontrino", "fiscale",
+            "documento", "negozio", "spesa", "importo", "pago", "pagamento",
+            "esselunga", "lidl", "coop", "conad", "carrefour", "pam", "deco", "md",
+            "eurospin", "penny", "kg", "peso", "pezzi", "art.", "subtotale", "resto",
+            "transazione", "terminale", "pos", "carta", "pagobancomat", "bancomat"
+        )
+        val hasKeyword = keywords.any { clean.contains(it) }
+        
+        // Also check if there are prices/numbers with decimals (like 1,39 or 2.50)
+        val priceRegex = Regex("""\d+[,.]\d{2}""")
+        val hasPrice = priceRegex.containsMatchIn(clean)
+        
+        return hasKeyword || hasPrice
+    }
+
     // Execute real Gemini-assisted parse OCR (Section 4 & 5)
     fun processScanningWithGemini(ocrRawText: String, elements: List<OcrElementDto>? = null) {
         viewModelScope.launch {
             isProcessingScan.value = true
             scanError.value = null
             try {
-                // Determine raw text to parse (handling empty/blank emulator camera outputs gracefully)
-                val textToParse = if (ocrRawText.isBlank()) {
-                    """
-                    ESSELUNGA S.P.A.
-                    CORSO SEMPIONE, 46 - MILANO
-                    
-                    LT INT GRAN      1.39
-                    PR CR S.DAN      4.80
-                    SUC.PEST.BIO     1.85
-                    SGRASSATORE      2.99
-                    
-                    TOTALE EURO     11.03
-                    """.trimIndent()
-                } else {
-                    ocrRawText
+                // Prevent silent fallback when text extraction fails completely
+                if (ocrRawText.isBlank()) {
+                    cancelScannerPreview()
+                    scanError.value = "Nessun testo leggibile rilevato dallo scontrino. Riprova con una foto più nitida o ravvicinata, oppure inserisci i dati manualmente."
+                    isProcessingScan.value = false
+                    return@launch
                 }
+
+                if (!isValidReceiptOcrText(ocrRawText)) {
+                    cancelScannerPreview()
+                    scanError.value = "La foto scansionata non sembra contenere uno scontrino valido o leggibile. Riprova inquadrando lo scontrino da vicino con buona luce, evitando sfondi non pertinenti o parti in ombra."
+                    isProcessingScan.value = false
+                    return@launch
+                }
+
+                val textToParse = ocrRawText
 
                 // 1. If Local LLM is downloaded and active, use on-device local model simulation
                 if (isLocalLlmActive.value && isLocalModelDownloaded.value) {
@@ -1539,8 +1644,8 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         }
 
         if (items.isEmpty()) {
-            items.add(ParsedItem("Spesa Mista Local AI", "Generico", 15.50, category = "Dispensa", confidence = 0.85))
-            computedTotal = 15.50
+            // No fake/fictitious items should be generated
+            computedTotal = 0.0
         }
 
         return ParsingReceiptResult(
@@ -1666,7 +1771,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                 paidBy = if (paidBy.lowercase() == "io") "Io" else "Partner"
             )
             repository.insertLedgerEntry(entry)
-            recordStoreTransaction(storeName, null, null, null)
+            recordStoreTransaction(storeName, null, null, null, entry.timestamp)
             simulateWebSocketNotification("Registrato spesa rapida di €${String.format(Locale.US, "%.2f", amount)} da $normalizedName da parte di $paidBy.")
         }
     }
@@ -1703,6 +1808,19 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             // Propagate store updates to pending scontrino
             syncPendingScontrinoWithStore(store)
             
+            // Recalculate store lastSeen based on actual ledger entries so that it matches actual receipt date
+            val dbEntries = repository.getAllLedgerEntries()
+            val storeEntries = dbEntries.filter { entry ->
+                val entryStore = extractStoreNameFromDescription(entry.description)
+                areStoreNamesSimilar(entryStore, store.name) || areStoreNamesSimilar(entryStore, store.displayName)
+            }
+            val newestTimestamp = storeEntries.maxOfOrNull { it.timestamp } ?: 0L
+            
+            val updatedStore = repository.getStoreByName(normalizeStoreName(store.name))
+            if (updatedStore != null) {
+                repository.updateStore(updatedStore.copy(lastSeen = newestTimestamp))
+            }
+
             // Propagate store updates to saved scontrini (ledger entries) on the fly
             val currentEntries = repository.getAllLedgerEntries()
             for (entry in currentEntries) {
@@ -1722,9 +1840,35 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun recalculateStoreLastSeen(storeName: String) {
+        viewModelScope.launch {
+            val normalized = normalizeStoreName(storeName)
+            val dbEntries = repository.getAllLedgerEntries()
+            val storeEntries = dbEntries.filter { entry ->
+                val entryStore = extractStoreNameFromDescription(entry.description)
+                areStoreNamesSimilar(entryStore, normalized)
+            }
+            val newestTimestamp = storeEntries.maxOfOrNull { it.timestamp } ?: 0L
+            
+            val store = repository.getStoreByName(normalized)
+            if (store != null) {
+                repository.updateStore(store.copy(lastSeen = newestTimestamp))
+            }
+        }
+    }
+
     fun deleteLedgerEntry(entry: LedgerEntry) {
         viewModelScope.launch {
             repository.deleteLedgerEntry(entry)
+            val storeName = extractStoreNameFromDescription(entry.description)
+            val normalizedStore = normalizeStoreName(storeName)
+            
+            // Core safety fix: Delete associated grocery items from items table to prevent leftovers
+            repository.deleteItemsByTimestampAndStore(entry.timestamp, normalizedStore)
+            
+            if (storeName.isNotBlank()) {
+                recalculateStoreLastSeen(storeName)
+            }
             simulateWebSocketNotification("Scontrino rimosso dalla contabilità!")
         }
     }

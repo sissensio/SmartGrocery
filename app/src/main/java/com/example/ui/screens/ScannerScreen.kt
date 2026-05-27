@@ -57,6 +57,7 @@ import com.example.ui.theme.SemanticRed
 import com.example.ui.theme.SemanticYellow
 import com.example.ui.viewmodel.GroceryViewModel
 import com.example.api.OcrElementDto
+import com.example.api.ParsedItem
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -93,13 +94,14 @@ fun ScannerScreen(
     val matchedReceiptInfo by viewModel.matchedReceiptInfo.collectAsState()
     val hasDifferentItemsFromDuplicate by viewModel.hasDifferentItemsFromDuplicate.collectAsState()
 
-    val showItemsList = detectedDuplicateLedgerEntryId == null || userDecisionToReconcile == false || hasDifferentItemsFromDuplicate
+    val showItemsList = true
 
     val isFullScreenCamera by viewModel.isFullScreenCameraOpen.collectAsState()
     val cameraScanTarget by viewModel.cameraScanTarget.collectAsState()
     val activeCameraStoreName by viewModel.activeCameraStoreName.collectAsState()
 
     var editingItemIndex by remember { mutableStateOf<Int?>(null) }
+    var showAddManualItemDialog by remember { mutableStateOf(false) }
     var showInitDbConfirmation by remember { mutableStateOf(false) }
     var showEditDateDialog by remember { mutableStateOf(false) }
     val scannedReceiptTimestamp by viewModel.scannedReceiptTimestamp.collectAsState()
@@ -601,10 +603,10 @@ fun ScannerScreen(
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = if (showItemsList) {
-                            "Scegli riga per riga se distribuire la spesa in Spazio Casa (comune) o mantenerla riservata nel tuo Spazio Privato."
+                        text = if (reconciledLedgerEntryId != null) {
+                            "Integrazione scontrino attiva (verranno preservati gli articoli originali già registrati). Scegli se distribuire i nuovi in Spazio Casa o Privato."
                         } else {
-                            "Integrazione attiva. Vengono preservati gli articoli originali già registrati."
+                            "Scegli riga per riga se distribuire la spesa in Spazio Casa (comune) o mantenerla riservata nel tuo Spazio Privato."
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -692,7 +694,10 @@ fun ScannerScreen(
             }
 
             if (showItemsList) {
-                itemsIndexed(scannedItems) { index, pair ->
+                itemsIndexed(
+                    items = scannedItems,
+                    key = { index, pair -> "${pair.first.name}_${pair.first.price}_$index" }
+                ) { index, pair ->
                     val pItem = pair.first
                     val isShared = pair.second
 
@@ -704,7 +709,7 @@ fun ScannerScreen(
 
                 // Swipable layout Container running pointer detection for horizontal swipes
                 val scope = rememberCoroutineScope()
-                val offsetX = remember(index, scannedItems.size) { Animatable(0f) }
+                val offsetX = remember(pItem) { Animatable(0f) }
 
                 Box(
                     modifier = Modifier
@@ -747,7 +752,7 @@ fun ScannerScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .offset { IntOffset(offsetX.value.roundToInt(), 0) }
-                            .pointerInput(index, scannedItems.size) {
+                            .pointerInput(pItem) {
                                 detectHorizontalDragGestures(
                                     onDragEnd = {
                                         if (offsetX.value > 150f) {
@@ -883,6 +888,29 @@ fun ScannerScreen(
 
             // Cross-verification verification of scontrino total sum vs calculated sum
             if (showItemsList) {
+                item {
+                    OutlinedButton(
+                        onClick = { showAddManualItemDialog = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .testTag("add_item_manually_button"),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(imageVector = Icons.Default.Add, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Aggiungi articolo manualmente", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
                 item {
                     val calculatedSum = scannedItems.sumOf { it.first.price }
                     val hasMismatch = Math.abs(calculatedSum - scannedTotal) > 0.02
@@ -1894,6 +1922,171 @@ fun ScannerScreen(
           )
       }
   }
+
+  // Add item manual dialog
+  if (showAddManualItemDialog) {
+      var inputName by remember { mutableStateOf("") }
+      var inputBrand by remember { mutableStateOf("") }
+      var inputPriceStr by remember { mutableStateOf("") }
+      var inputWeightStr by remember { mutableStateOf("") }
+      var inputPricePerKgStr by remember { mutableStateOf("") }
+      var selectCategory by remember { mutableStateOf("Dispensa") }
+      var isSharedValue by remember { mutableStateOf(true) }
+
+      AlertDialog(
+          onDismissRequest = { showAddManualItemDialog = false },
+          title = {
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                  Icon(imageVector = Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                  Spacer(modifier = Modifier.width(8.dp))
+                  Text("Aggiungi Articolo Manualmente", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+              }
+          },
+          text = {
+              Column(
+                  modifier = Modifier
+                      .fillMaxWidth()
+                      .padding(vertical = 4.dp),
+                  verticalArrangement = Arrangement.spacedBy(10.dp)
+              ) {
+                  OutlinedTextField(
+                      value = inputName,
+                      onValueChange = { inputName = it },
+                      label = { Text("Nome Prodotto (es: Caffè)") },
+                      modifier = Modifier.fillMaxWidth().testTag("add_product_name_input")
+                  )
+
+                  OutlinedTextField(
+                      value = inputBrand,
+                      onValueChange = { inputBrand = it },
+                      label = { Text("Marca (es: Lavazza)") },
+                      modifier = Modifier.fillMaxWidth().testTag("add_product_brand_input")
+                  )
+
+                  OutlinedTextField(
+                      value = inputPriceStr,
+                      onValueChange = { inputPriceStr = it },
+                      label = { Text("Prezzo riga (€)") },
+                      placeholder = { Text("es: 3.49") },
+                      modifier = Modifier.fillMaxWidth().testTag("add_product_price_input")
+                  )
+
+                  OutlinedTextField(
+                      value = inputWeightStr,
+                      onValueChange = { inputWeightStr = it },
+                      label = { Text("Peso (kg) - Opzionale") },
+                      placeholder = { Text("es: 1.250") },
+                      modifier = Modifier.fillMaxWidth().testTag("add_product_weight_input")
+                  )
+
+                  OutlinedTextField(
+                      value = inputPricePerKgStr,
+                      onValueChange = { inputPricePerKgStr = it },
+                      label = { Text("Prezzo al kg (€/kg) - Opzionale") },
+                      placeholder = { Text("es: 1.95") },
+                      modifier = Modifier.fillMaxWidth().testTag("add_product_price_per_kg_input")
+                  )
+
+                  // Checkbox/Switch for shared/private partition
+                  Row(
+                      modifier = Modifier.fillMaxWidth(),
+                      verticalAlignment = Alignment.CenterVertically,
+                      horizontalArrangement = Arrangement.SpaceBetween
+                  ) {
+                      Text(
+                          text = "Condividi in Spazio Casa (comune)",
+                          style = MaterialTheme.typography.bodyMedium
+                      )
+                      Switch(
+                          checked = isSharedValue,
+                          onCheckedChange = { isSharedValue = it },
+                          modifier = Modifier.testTag("add_product_shared_switch")
+                      )
+                  }
+
+                  Text(
+                      text = "Seleziona Categoria",
+                      style = MaterialTheme.typography.labelMedium,
+                      fontWeight = FontWeight.Bold,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant
+                  )
+
+                  val categoriesList = listOf("Latticini", "Dispensa", "Frutta e Verdura", "Macelleria", "Bevande", "Igiene e Casa", "Colazione", "Surgelati", "Spuntini")
+                  androidx.compose.foundation.lazy.LazyRow(
+                      horizontalArrangement = Arrangement.spacedBy(8.dp),
+                      modifier = Modifier.fillMaxWidth().height(44.dp)
+                  ) {
+                      items(categoriesList) { cat ->
+                          val isSelected = selectCategory == cat
+                          Surface(
+                              shape = RoundedCornerShape(12.dp),
+                              color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+                              border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
+                              modifier = Modifier
+                                  .clickable { selectCategory = cat }
+                                  .testTag("add_category_chip_$cat")
+                          ) {
+                              Row(
+                                  modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                  verticalAlignment = Alignment.CenterVertically
+                              ) {
+                                  if (isSelected) {
+                                      Icon(
+                                          imageVector = Icons.Default.CheckCircle,
+                                          contentDescription = null,
+                                          tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                          modifier = Modifier.size(14.dp).padding(end = 4.dp)
+                                      )
+                                  }
+                                  Text(
+                                      text = cat,
+                                      style = MaterialTheme.typography.labelSmall,
+                                      color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                      fontWeight = FontWeight.Bold
+                                  )
+                              }
+                          }
+                      }
+                  }
+              }
+          },
+          confirmButton = {
+              Button(
+                  onClick = {
+                      val price = inputPriceStr.replace(",", ".").toDoubleOrNull() ?: 0.0
+                      val weight = inputWeightStr.replace(",", ".").toDoubleOrNull()
+                      val pricePerKg = inputPricePerKgStr.replace(",", ".").toDoubleOrNull()
+
+                      if (inputName.isNotBlank() && price >= 0.0) {
+                          val newItem = ParsedItem(
+                              name = inputName,
+                              brand = inputBrand,
+                              price = price,
+                              weight = weight,
+                              pricePerKg = pricePerKg,
+                              category = selectCategory,
+                              confidence = 1.0
+                          )
+                          viewModel.addScannedItem(newItem, isSharedValue)
+                          showAddManualItemDialog = false
+                      }
+                  },
+                  enabled = inputName.isNotBlank() && inputPriceStr.replace(",", ".").toDoubleOrNull() != null,
+                  modifier = Modifier.testTag("save_add_scanned_item_button")
+              ) {
+                  Text("Aggiungi")
+              }
+          },
+          dismissButton = {
+              TextButton(
+                  onClick = { showAddManualItemDialog = false },
+                  modifier = Modifier.testTag("cancel_add_scanned_item_button")
+              ) {
+                  Text("Annulla")
+              }
+          }
+      )
+  }
 }
 
 @Composable
@@ -2109,22 +2302,26 @@ fun FullScreenCameraOverlay(
                                     .addOnFailureListener { t ->
                                         t.printStackTrace()
                                         image.close()
-                                        triggerFallbackCapture()
+                                        viewModel.isProcessingScan.value = false
+                                        viewModel.scanError.value = "Impossibile elaborare l'immagine scattata: ${t.localizedMessage ?: "Errore di riconoscimento visivo."}"
                                     }
                             } else {
                                 image.close()
-                                triggerFallbackCapture()
+                                viewModel.isProcessingScan.value = false
+                                viewModel.scanError.value = "L'immagine catturata dalla fotocamera è vuota o corrotta."
                             }
                         } catch (e: Exception) {
                             e.printStackTrace()
                             image.close()
-                            triggerFallbackCapture()
+                            viewModel.isProcessingScan.value = false
+                            viewModel.scanError.value = "Errore durante l'acquisizione: ${e.localizedMessage}"
                         }
                     }
 
                     override fun onError(exception: ImageCaptureException) {
                         exception.printStackTrace()
-                        triggerFallbackCapture()
+                        viewModel.isProcessingScan.value = false
+                        viewModel.scanError.value = "Errore hardware della fotocamera: ${exception.localizedMessage}. Prova a riaprirla o usa l'inserimento manuale."
                     }
                 }
             )

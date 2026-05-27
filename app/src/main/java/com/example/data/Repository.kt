@@ -12,6 +12,7 @@ class GroceryRepository(private val dao: GroceryDao) {
     suspend fun updateItem(item: GroceryItem) = dao.updateItem(item)
     suspend fun deleteItem(item: GroceryItem) = dao.deleteItem(item)
     suspend fun deleteItemById(id: Int) = dao.deleteItemById(id)
+    suspend fun deleteItemsByTimestampAndStore(timestamp: Long, storeName: String) = dao.deleteItemsByTimestampAndStore(timestamp, storeName)
     suspend fun clearAllItems() = dao.deleteAllItems()
 
     // --- Pending Receipts ---
