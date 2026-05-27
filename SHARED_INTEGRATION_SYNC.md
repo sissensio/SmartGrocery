@@ -51,6 +51,7 @@ Ogni agente compila questa tabella dopo modifiche rilevanti per evitare regressi
 | **2026-05-27 16:00** | Antigravity | `backend/tests/*`, `backend/routers/*`, `backend/main.py`, `backend/schemas.py`, `SHARED_INTEGRATION_SYNC.md` | **Backend Phase Complete**: Implemented traditional/Google/biometric logins, automated store VAT resolution and name normalization, price history tracking with analytics (average, min/max, geo-stats), shrinkflation alerts, and advanced targeted notifications (broadcast, geo, store-specific) with offline sync support. Organized tests under `backend/tests/` package and created a unified test runner (`run_all_tests.py`) verifying 100% green and deterministic local flows. | ✅ Sincronizzato & Pushed |
 | **2026-05-27 19:40** | AI Studio | `SyncNotificationAcksWorker.kt`, `GroceryViewModel.kt`, `LocalBackendService.kt`, `HomeScreen.kt`, `build.gradle.kts` | **Frontend Integration - Notifications & Limits**: Implementato `SyncNotificationAcksWorker` con Android WorkManager per gestire la sincronizzazione differita e in background degli acknowledge delle notifiche lettate in modalità offline verso il backend locale. Inserite chiamate di polling automatico e queue del worker all'avvio. Esteso `LocalBackendService` per includere correttamente l'header `X-Device-ID` e gestire lo state flow dell'app. Aggiunto `AlertDialog` in `HomeScreen` per la notifica tempestiva dei superamenti del limite transazione (HTTP 403). Risolti problemi di test (NPE nei Robolectric suites) anticipando le inizializzazioni dello stato offline. | ✅ Allineato & Compilato |
 | **2026-05-27 19:55** | AI Studio | `network_config.json`, `BiometricKeyManager`, `GroceryViewModel.kt`, `GlobalSettingsScreen.kt`, `MainActivity.kt` | **IP Update & Biometric RSA Integration**: Aggiornato IP LAN a `192.168.111.101`. Completata implementazione del flusso 4.1 "Registrazione & Login Biometrico": aggiunto `androidx.biometric:biometric` al progetto, convertito `MainActivity` a `FragmentActivity`, aggiunto `.setUserAuthenticationRequired(true)` in `KeyGenParameterSpec` e implementato l'intero ciclo interattivo asincrono con `androidx.biometric.BiometricPrompt` nella UI (`GlobalSettingsScreen.kt`) per firmare in locale il challenge (nonce) del backend tramite chiavi RSA hardware sicure. | ✅ Allineato & Compilato |
+| **2026-05-27 21:08** | AI Studio | `LocalBackendService.kt` | **Fix Payload 422 `submitLedgerEntry`**: Corretto JSON payload verso l'endpoint `POST /api/v1/ledger`. Sistemata incompatibilità del DTO `LedgerSubmitRequest` ("store_name" in "storeName" e "timestamp" in "date" stringata YYYY-MM-DD), per allineamento esatto allo schema Pydantic atteso. | ✅ Allineato & Compilato |
 
 ---
 
@@ -113,31 +114,6 @@ Il backend supporta notifiche mirate in base alle abitudini d'acquisto dell'uten
 Quando l'utente finalizza ed integra uno scontrino scansionato:
 * Chiamare `POST /api/v1/ledger` inviando l'anagrafica negozio e la lista articoli.
 * **Headers**: `Authorization: Bearer <token>` e `X-Device-ID: <device_uuid>`.
-* **Payload JSON (LedgerCreate)**:
-  ```json
-  {
-    "storeName": "Lidl",
-    "vatNumber": "12345678901",
-    "address": "Via Milano, 5",
-    "phone": "02123456",
-    "amount": 8.96,
-    "category": "Dispensa",
-    "paid_by": "Io",
-    "is_shared": true,
-    "date": "2026-05-27",
-    "items": [
-      {
-        "name": "Zucchine",
-        "brand": "",
-        "category": "Frutta e Verdura",
-        "price": 6.07,
-        "unitPrice": 4.5,
-        "weight": 1.348,
-        "barcode": ""
-      }
-    ]
-  }
-  ```
 * Il server verificherà lo stato del dispositivo ed applicherà eventuali limiti di transazione ad-hoc configurati dall'amministratore (restituendo un HTTP 403 in caso di superamento limiti), registrando asincronamente lo storico dei prezzi degli articoli per analizzare l'andamento del mercato e calcolare gli alert di sgrammatura (Shrinkflation).
 
 ---

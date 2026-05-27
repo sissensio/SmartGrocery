@@ -94,10 +94,11 @@ data class LedgerItemDto(
 
 @JsonClass(generateAdapter = true)
 data class LedgerSubmitRequest(
-    @Json(name = "store_name") val storeName: String,
+    @Json(name = "storeName") val storeName: String,
     @Json(name = "amount") val amount: Double,
-    @Json(name = "timestamp") val timestamp: Long,
-    @Json(name = "device_uuid") val deviceUuid: String,
+    @Json(name = "date") val date: String, // Stringa YYYY-MM-DD
+    @Json(name = "paid_by") val paidBy: String = "Io",
+    @Json(name = "is_shared") val isShared: Boolean = true,
     @Json(name = "items") val items: List<LedgerItemDto>? = null
 )
 
@@ -400,7 +401,19 @@ object LocalBackendServiceClient {
     suspend fun submitLedgerEntry(token: String?, deviceUuid: String, storeName: String, amount: Double, timestamp: Long, items: List<LedgerItemDto>?): Int = withContext(Dispatchers.IO) {
         if (!isHostConfigured()) return@withContext 250
         val url = "${getBaseUrl()}/api/v1/ledger"
-        val req = LedgerSubmitRequest(storeName, amount, timestamp, deviceUuid, items)
+        
+        // Converte il timestamp in formato yyyy-MM-dd
+        val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(timestamp))
+        
+        val req = LedgerSubmitRequest(
+            storeName = storeName,
+            amount = amount,
+            date = dateStr,
+            paidBy = "Io",
+            isShared = true,
+            items = items
+        )
+        
         val json = moshi.adapter(LedgerSubmitRequest::class.java).toJson(req)
         val reqBuilder = Request.Builder().url(url)
             .header("X-Device-ID", deviceUuid)
@@ -410,6 +423,10 @@ object LocalBackendServiceClient {
         val request = reqBuilder.post(json.toRequestBody("application/json".toMediaType())).build()
         try {
             client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    // Ritorna un codice di successo convenzionale (es. 201)
+                    return@withContext response.code
+                }
                 return@withContext response.code
             }
         } catch (e: Exception) {
