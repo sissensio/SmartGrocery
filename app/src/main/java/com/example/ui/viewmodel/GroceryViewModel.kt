@@ -68,7 +68,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         // Polling loop for notification fetching every 15 seconds
         viewModelScope.launch {
             while (true) {
-                if (!isOfflineMode.value && LocalBackendServiceClient.isHostConfigured()) {
+                if (!isOfflineMode.value && LocalBackendServiceClient.isHostConfigured() && !userToken.value.isNullOrBlank()) {
                     try {
                         val list = LocalBackendServiceClient.getUnreadNotifications(userToken.value, deviceUuid.value)
                         notificationsList.value = list
