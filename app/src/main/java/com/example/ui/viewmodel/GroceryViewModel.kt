@@ -28,7 +28,7 @@ data class MatchedReceiptInfo(
 class GroceryViewModel(application: Application) : AndroidViewModel(application) {
 
     private val TAG = "GroceryViewModel"
-    private val repository: GroceryRepository
+    private val repository: GroceryRepository = GroceryRepository(AppDatabase.getDatabase(application).groceryDao())
 
     // --- Device UUID and authentication security states ---
     val deviceUuid = MutableStateFlow<String>("")
@@ -42,17 +42,15 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
     // Dialog / error for Transaction Limit Exceeded (HTTP 403)
     val transactionLimitAlertMessage = MutableStateFlow<String?>(null)
     
-    // --- Unread Notifications state ---
-    val notificationsList = MutableStateFlow<List<com.example.api.BackendNotification>>(emptyList())
-    
+    val notificationsList: StateFlow<List<com.example.api.BackendNotification>> = repository.unreadNotifications
+        .map { list -> list.map { it.toApiModel() } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     // UI state states (Initialized above init block to prevent NPE in immediate Coroutines inside test suites)
     var isOfflineMode = MutableStateFlow(false)
 
     // Initial Database Setup
     init {
-        val database = AppDatabase.getDatabase(application)
-        repository = GroceryRepository(database.groceryDao())
-        
         val prefs = application.getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE)
         var uuid = prefs.getString("device_uuid", null)
         if (uuid == null) {
@@ -64,21 +62,6 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         userToken.value = prefs.getString("user_token", null)
         userEmail.value = prefs.getString("user_email", "sissensio@gmail.com") // Prepopulated custom user email
         isBiometricEnabled.value = com.example.api.BiometricKeyManager.isKeyGenerated()
-        
-        // Polling loop for notification fetching every 15 seconds
-        viewModelScope.launch {
-            while (true) {
-                if (!isOfflineMode.value && LocalBackendServiceClient.isHostConfigured() && !userToken.value.isNullOrBlank()) {
-                    try {
-                        val list = LocalBackendServiceClient.getUnreadNotifications(userToken.value, deviceUuid.value)
-                        notificationsList.value = list
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Errore durante il polling delle notifiche", e)
-                    }
-                }
-                delay(15000)
-            }
-        }
 
         viewModelScope.launch {
             try {
@@ -117,9 +100,27 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         
         // Sincronizzazione automatica offline con WorkManager delle notifiche lette precedentemente in offline
         try {
-            com.example.api.SyncNotificationAcksWorker.enqueue(application)
+            enqueueMasterSync()
         } catch (e: Exception) {
             Log.e(TAG, "Errore durante l'avvio del WorkManager", e)
+        }
+    }
+
+    private fun enqueueMasterSync() {
+        try {
+            val constraints = androidx.work.Constraints.Builder()
+                .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+                .build()
+            val request = androidx.work.OneTimeWorkRequestBuilder<com.example.workers.MasterSyncWorker>()
+                .setConstraints(constraints)
+                .build()
+            androidx.work.WorkManager.getInstance(getApplication()).enqueueUniqueWork(
+                "master_sync_worker",
+                androidx.work.ExistingWorkPolicy.REPLACE,
+                request
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Errore during enqueueMasterSync", e)
         }
     }
 
@@ -404,33 +405,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         val nextMode = !isOfflineMode.value
         isOfflineMode.value = nextMode
         if (!nextMode) {
-            viewModelScope.launch {
-                syncOfflineNotificationAcks()
-            }
-        }
-    }
-
-    suspend fun syncOfflineNotificationAcks() {
-        if (isOfflineMode.value || !LocalBackendServiceClient.isHostConfigured()) return
-        try {
-            val unsynced = repository.getUnsyncedNotificationAcks()
-            if (unsynced.isEmpty()) return
-            
-            simulateWebSocketNotification("Sincronizzazione di ${unsynced.size} notifiche lette offline in corso...")
-            var successCount = 0
-            unsynced.forEach { ack ->
-                val ok = LocalBackendServiceClient.acknowledgeNotification(userToken.value, ack.notificationId, ack.deviceUuid)
-                if (ok) {
-                    repository.updateNotificationAck(ack.copy(isSynced = true))
-                    successCount++
-                }
-            }
-            repository.deleteSyncedNotificationAcks()
-            if (successCount > 0) {
-                simulateWebSocketNotification("Sincronizzazione completata: $successCount notifiche confermate col server.")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Errore durante sync notifiche offline", e)
+            enqueueMasterSync()
         }
     }
 
@@ -504,30 +479,24 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
 
-            // Verify with FastAPI backend for transaction device limits (HTTP 403 check)
-            var backendSuccess = true
-            var exitCode = 200
-            if (!isOfflineMode.value && LocalBackendServiceClient.isHostConfigured()) {
-                val dtoList = itemsToInsert.map { com.example.api.LedgerItemDto(it.first.name, it.first.price, it.first.category) }
-                exitCode = LocalBackendServiceClient.submitLedgerEntry(
-                    token = userToken.value,
-                    deviceUuid = deviceUuid.value,
-                    storeName = store,
-                    amount = sharedTotal,
-                    timestamp = entryTimestamp,
-                    items = dtoList
-                )
-                if (exitCode == 403) {
-                    backendSuccess = false
-                }
+            // Check limits locally! (Offline-First constraint application)
+            val prefs = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE)
+            val isBlocked = prefs.getBoolean("device_blocked", false)
+            val customLimit = prefs.getFloat("device_limit", -1f)
+            
+            if (isBlocked) {
+                transactionLimitAlertMessage.value = "DISPOSITIVO BLOCCATO: Impossibile registrare nuove spese. Contatta l'amministratore."
+                simulateWebSocketNotification("Transazione bloccata: dispositivo disabilitato.")
+                return@launch
             }
-
-            if (!backendSuccess) {
-                transactionLimitAlertMessage.value = "ATTENZIONE SVILUPPATORE / LIMITE SUPERATO: Il server backend ha rigettato l'inserimento scontrino. Rilevato superamento del massimale fiduciario autorizzato per scontrino feriale/festivo (HTTP 403)!"
+            if (customLimit > 0f && sharedTotal > customLimit) {
+                transactionLimitAlertMessage.value = "ATTENZIONE SVILUPPATORE / LIMITE SUPERATO: Rilevato superamento del massimale fiduciario autorizzato (Limite locale: €${customLimit})!"
                 simulateWebSocketNotification("Transazione bloccata: limiti fiduciari superati.")
                 return@launch
             }
 
+            // Verify with FastAPI backend for transaction device limits (HTTP 403 check)
+            // L'inserimento ora avviene in modalità offline-first, il check dei limiti 403 lo gestiremo post-sync
             // Record store metadata and normalize it in database
             recordStoreTransaction(store, scannedVatNumber.value, scannedAddress.value, scannedPhone.value, entryTimestamp)
 
@@ -596,15 +565,20 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                 val listTypeInstance = Types.newParameterizedType(List::class.java, ParsedItem::class.java)
                 val jsonReceipt = moshiInstance.adapter<List<ParsedItem>>(listTypeInstance).toJson(serializedList)
 
+                val clientUuid = java.util.UUID.randomUUID().toString()
                 val debtEntry = LedgerEntry(
                     id = matchingId,
                     description = "Frazione Scontrino ${normalizeStoreName(store)}" + if (scannedVatNumber.value != null) " (PIVA ${scannedVatNumber.value})" else "",
                     amount = sharedTotal,
                     paidBy = if (paidBy.lowercase() == "io") "Io" else "Partner",
                     timestamp = entryTimestamp,
-                    receiptItemsJson = jsonReceipt
+                    receiptItemsJson = jsonReceipt,
+                    client_uuid = clientUuid,
+                    is_synced = false
                 )
                 repository.insertLedgerEntry(debtEntry)
+                
+                enqueueMasterSync()
             } else if (matchingId != 0) {
                 // If the old receipt was merged/integrated but now contains 0 shared items,
                 // delete it from the ledger so only the items database is updated, avoiding any ghost ledger entry.
@@ -1910,36 +1884,35 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             val normalizedName = normalizeStoreName(storeName)
             
-            // Check limits against FastAPI backend (HTTP 403 test)
-            var backendSuccess = true
-            var exitCode = 200
-            if (!isOfflineMode.value && LocalBackendServiceClient.isHostConfigured()) {
-                exitCode = LocalBackendServiceClient.submitLedgerEntry(
-                    token = userToken.value,
-                    deviceUuid = deviceUuid.value,
-                    storeName = normalizedName,
-                    amount = amount,
-                    timestamp = System.currentTimeMillis(),
-                    items = null
-                )
-                if (exitCode == 403) {
-                    backendSuccess = false
-                }
+            // Check limits locally (Offline-First constraint application)
+            val prefs = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE)
+            val isBlocked = prefs.getBoolean("device_blocked", false)
+            val customLimit = prefs.getFloat("device_limit", -1f)
+            
+            if (isBlocked) {
+                transactionLimitAlertMessage.value = "DISPOSITIVO BLOCCATO: Impossibile registrare nuove spese. Contatta l'amministratore."
+                simulateWebSocketNotification("Transazione bloccata: dispositivo disabilitato.")
+                return@launch
             }
-
-            if (!backendSuccess) {
-                transactionLimitAlertMessage.value = "ATTENZIONE SVILUPPATORE / LIMITE SUPERATO: Il micro-acquisto rapido è stato bloccato dal server. Questa spesa supera il massimo mensile consentito per questo dispositivo (HTTP 403)!"
-                simulateWebSocketNotification("Transazione rapida bloccata: limiti fiduciari superati.")
+            if (customLimit > 0f && amount > customLimit) {
+                transactionLimitAlertMessage.value = "ATTENZIONE SVILUPPATORE / LIMITE SUPERATO: Rilevato superamento del massimale fiduciario autorizzato (Limite locale: €${customLimit})!"
+                simulateWebSocketNotification("Transazione bloccata: limiti fiduciari superati.")
                 return@launch
             }
 
+            val clientUuid = java.util.UUID.randomUUID().toString()
             val entry = LedgerEntry(
                 description = "Acquisto rapido $normalizedName",
                 amount = amount,
-                paidBy = if (paidBy.lowercase() == "io") "Io" else "Partner"
+                paidBy = if (paidBy.lowercase() == "io") "Io" else "Partner",
+                client_uuid = clientUuid,
+                is_synced = false
             )
             repository.insertLedgerEntry(entry)
             recordStoreTransaction(storeName, null, null, null, entry.timestamp)
+            
+            enqueueMasterSync()
+            
             simulateWebSocketNotification("Registrato spesa rapida di €${String.format(Locale.US, "%.2f", amount)} da $normalizedName da parte di $paidBy.")
         }
     }
@@ -2084,8 +2057,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                     .apply()
                 simulateWebSocketNotification("Accesso effettuato! Benvenuto, $email.")
                 // Fresh pull
-                val list = LocalBackendServiceClient.getUnreadNotifications(res.accessToken, deviceUuid.value)
-                notificationsList.value = list
+                enqueueMasterSync()
             } else {
                 lastAuthError.value = LocalBackendServiceClient.lastApiError ?: "Impossibile autenticare l'utente."
             }
@@ -2151,8 +2123,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                 prefs.edit().putString("user_token", res.accessToken).apply()
                 simulateWebSocketNotification("Sblocco Biometrico Eseguito con successo! Sessione attiva.")
                 // Fresh pull
-                val list = LocalBackendServiceClient.getUnreadNotifications(res.accessToken, deviceUuid.value)
-                notificationsList.value = list
+                enqueueMasterSync()
             } else {
                 lastAuthError.value = "Firma biometrica scartata dal server o IP non configurato."
             }
@@ -2176,42 +2147,17 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
 
     fun acknowledgeNotification(notificationId: Int) {
         viewModelScope.launch {
-            if (isOfflineMode.value) {
-                // Device is offline, cache locally in Room for offline sync
-                val ack = com.example.data.NotificationAck(
-                    notificationId = notificationId,
-                    deviceUuid = deviceUuid.value,
-                    isSynced = false
-                )
-                repository.insertNotificationAck(ack)
-                try {
-                    com.example.api.SyncNotificationAcksWorker.enqueue(getApplication())
-                } catch (e: Exception) {
-                    Log.e(TAG, "Errore enqueue WorkManager", e)
-                }
-                // Filter out locally so visual update is instant! Dynamic design!
-                notificationsList.value = notificationsList.value.filter { it.id != notificationId }
-                simulateWebSocketNotification("Riscontro salvato offline. Verrà sincronizzato non appena tornerai online.")
-            } else {
-                // Online, hit backend immediately
-                val ok = LocalBackendServiceClient.acknowledgeNotification(userToken.value, notificationId, deviceUuid.value)
-                if (ok) {
-                    notificationsList.value = notificationsList.value.filter { it.id != notificationId }
-                } else {
-                    simulateWebSocketNotification("Impossibile connettersi al backend. Riscontro registrato offline.")
-                    val ack = com.example.data.NotificationAck(
-                        notificationId = notificationId,
-                        deviceUuid = deviceUuid.value,
-                        isSynced = false
-                    )
-                    repository.insertNotificationAck(ack)
-                    try {
-                        com.example.api.SyncNotificationAcksWorker.enqueue(getApplication())
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Errore enqueue WorkManager", e)
-                    }
-                    notificationsList.value = notificationsList.value.filter { it.id != notificationId }
-                }
+            repository.markNotificationAsRead(notificationId)
+            val ack = com.example.data.NotificationAck(
+                notificationId = notificationId,
+                deviceUuid = deviceUuid.value,
+                isSynced = false
+            )
+            repository.insertNotificationAck(ack)
+            try {
+                enqueueMasterSync()
+            } catch (e: Exception) {
+                Log.e(TAG, "Errore enqueue WorkManager", e)
             }
         }
     }

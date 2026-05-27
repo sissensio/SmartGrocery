@@ -47,5 +47,8 @@ class GroceryRepository(private val dao: GroceryDao) {
     suspend fun getUnsyncedNotificationAcks(): List<NotificationAck> = dao.getUnsyncedNotificationAcks()
     suspend fun insertNotificationAck(ack: NotificationAck): Long = dao.insertNotificationAck(ack)
     suspend fun updateNotificationAck(ack: NotificationAck) = dao.updateNotificationAck(ack)
-    suspend fun deleteSyncedNotificationAcks() = dao.deleteSyncedNotificationAcks()
+    suspend fun deleteSyncedNotificationAcks(ids: List<Int>) = dao.deleteSyncedNotificationAcks(ids)
+
+    val unreadNotifications: Flow<List<BackendNotificationEntity>> = dao.getUnreadNotificationsFlow()
+    suspend fun markNotificationAsRead(id: Int) = dao.markNotificationAsRead(id)
 }

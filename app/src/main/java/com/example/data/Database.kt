@@ -48,6 +48,9 @@ interface GroceryDao {
     @Query("SELECT * FROM ledger_entries ORDER BY timestamp DESC")
     fun getLedgerEntriesFlow(): Flow<List<LedgerEntry>>
 
+    @Query("SELECT * FROM ledger_entries WHERE is_synced = 0")
+    suspend fun getUnsyncedLedgerEntries(): List<LedgerEntry>
+
     @Query("SELECT * FROM ledger_entries WHERE id = :id LIMIT 1")
     suspend fun getLedgerEntryById(id: Int): LedgerEntry?
 
@@ -95,13 +98,25 @@ interface GroceryDao {
     @Update
     suspend fun updateNotificationAck(ack: NotificationAck)
 
-    @Query("DELETE FROM notification_acks WHERE isSynced = 1")
-    suspend fun deleteSyncedNotificationAcks()
+    @Query("DELETE FROM notification_acks WHERE isSynced = 1 OR notificationId IN (:ids)")
+    suspend fun deleteSyncedNotificationAcks(ids: List<Int>)
+
+    @Query("SELECT * FROM app_notifications WHERE isRead = 0 ORDER BY id DESC")
+    fun getUnreadNotificationsFlow(): Flow<List<BackendNotificationEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertNotifications(notifications: List<BackendNotificationEntity>)
+
+    @Query("UPDATE app_notifications SET isRead = 1 WHERE id = :id")
+    suspend fun markNotificationAsRead(id: Int)
+
+    @Query("DELETE FROM app_notifications WHERE id = :id")
+    suspend fun deleteNotification(id: Int)
 }
 
 @Database(
-    entities = [GroceryItem::class, PendingReceipt::class, LedgerEntry::class, StoreInfo::class, NotificationAck::class],
-    version = 5,
+    entities = [GroceryItem::class, PendingReceipt::class, LedgerEntry::class, StoreInfo::class, NotificationAck::class, BackendNotificationEntity::class],
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

@@ -99,7 +99,30 @@ data class LedgerSubmitRequest(
     @Json(name = "date") val date: String, // Stringa YYYY-MM-DD
     @Json(name = "paid_by") val paidBy: String = "Io",
     @Json(name = "is_shared") val isShared: Boolean = true,
+    @Json(name = "client_uuid") val clientUuid: String,
     @Json(name = "items") val items: List<LedgerItemDto>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class DeviceStatusDto(
+    @Json(name = "is_blocked") val isBlocked: Boolean,
+    @Json(name = "custom_limit") val customLimit: Double? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class SyncRequest(
+    @Json(name = "device_uuid") val deviceUuid: String,
+    @Json(name = "pending_ledger_entries") val pendingLedgerEntries: List<LedgerSubmitRequest>,
+    @Json(name = "pending_notification_acks") val pendingNotificationAcks: List<Int>
+)
+
+@JsonClass(generateAdapter = true)
+data class SyncResponse(
+    @Json(name = "server_timestamp") val serverTimestamp: String,
+    @Json(name = "synced_ledger_uuids") val syncedLedgerUuids: List<String>,
+    @Json(name = "synced_notification_acks") val syncedNotificationAcks: List<Int>,
+    @Json(name = "new_notifications") val newNotifications: List<BackendNotification>,
+    @Json(name = "device_status") val deviceStatus: DeviceStatusDto
 )
 
 object BiometricKeyManager {
@@ -398,7 +421,7 @@ object LocalBackendServiceClient {
         }
     }
 
-    suspend fun submitLedgerEntry(token: String?, deviceUuid: String, storeName: String, amount: Double, timestamp: Long, items: List<LedgerItemDto>?): Int = withContext(Dispatchers.IO) {
+    suspend fun submitLedgerEntry(token: String?, deviceUuid: String, storeName: String, amount: Double, timestamp: Long, items: List<LedgerItemDto>?, clientUuid: String): Int = withContext(Dispatchers.IO) {
         if (!isHostConfigured()) return@withContext 250
         val url = "${getBaseUrl()}/api/v1/ledger"
         
@@ -411,6 +434,7 @@ object LocalBackendServiceClient {
             date = dateStr,
             paidBy = "Io",
             isShared = true,
+            clientUuid = clientUuid,
             items = items
         )
         
@@ -431,6 +455,32 @@ object LocalBackendServiceClient {
             }
         } catch (e: Exception) {
             return@withContext 500
+        }
+    }
+
+    suspend fun performUnifiedSync(token: String?, requestBody: SyncRequest): SyncResponse? = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext null
+        val url = "${getBaseUrl()}/api/v1/sync"
+        val json = moshi.adapter(SyncRequest::class.java).toJson(requestBody)
+        val reqBuilder = Request.Builder().url(url)
+            .header("X-Device-ID", requestBody.deviceUuid)
+        if (token != null) {
+            reqBuilder.header("Authorization", "Bearer $token")
+        }
+        val request = reqBuilder.post(json.toRequestBody("application/json".toMediaType())).build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext null
+                    return@withContext moshi.adapter(SyncResponse::class.java).fromJson(raw)
+                } else {
+                    lastApiError = "Errore sync: HTTP ${response.code}"
+                    return@withContext null
+                }
+            }
+        } catch (e: Exception) {
+            lastApiError = e.localizedMessage
+            return@withContext null
         }
     }
 }

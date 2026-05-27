@@ -263,6 +263,22 @@ fun LedgerScreen(
                                         color = SemanticGreen,
                                         fontWeight = FontWeight.Bold
                                     )
+                                } else if (!entry.is_synced) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.CloudUpload,
+                                            contentDescription = "In attesa di sync",
+                                            tint = SemanticYellow,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "IN ATTESA DI SYNC",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = SemanticYellow,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
                             }
                         }
