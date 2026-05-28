@@ -155,7 +155,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
 
     fun refreshActiveSessions() {
         viewModelScope.launch {
-            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("auth_token", null)
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
             val sessions = com.example.api.LocalBackendServiceClient.getActiveShoppingSessions(token)
             activeShoppingSessions.value = sessions
         }
@@ -171,7 +171,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                 catalogSearchResults.value = emptyList()
                 return@launch
             }
-            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("auth_token", null)
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
             val results = com.example.api.LocalBackendServiceClient.searchCatalog(token, query)
             catalogSearchResults.value = results
         }
@@ -179,7 +179,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
 
     fun fetchComparison(barcode: String?, name: String?) {
         viewModelScope.launch {
-            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("auth_token", null)
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
             val comparison = com.example.api.LocalBackendServiceClient.compareCatalogPrices(token, barcode, name)
             selectedComparison.value = comparison
         }
@@ -197,7 +197,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
 
     fun fetchShrinkflationAlerts() {
         viewModelScope.launch {
-            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("auth_token", null)
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
             val alerts = com.example.api.LocalBackendServiceClient.getShrinkflationAlerts(token)
             shrinkflationAlerts.value = alerts
         }
@@ -205,7 +205,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
 
     fun checkSingleShrinkflation(barcode: String) {
         viewModelScope.launch {
-            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("auth_token", null)
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
             val alert = com.example.api.LocalBackendServiceClient.checkSingleShrinkflation(token, barcode)
             if (activeShrinkflationAlert.value != alert) {
                 activeShrinkflationAlert.value = alert
@@ -1880,7 +1880,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
     fun triggerSimulatedGeofenceEntrance(storeName: String) {
         // Send CHECK_IN telemetry to backend
         viewModelScope.launch {
-            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("auth_token", null)
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
             val deviceId = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("device_uuid", null) ?: java.util.UUID.randomUUID().toString()
             if (token != null) {
                 val success = com.example.api.LocalBackendServiceClient.submitTelemetry(token, com.example.api.TelemetryEventCreate(deviceId, "CHECK_IN", storeName, null))
@@ -1894,7 +1894,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
     fun triggerSimulatedGeofenceExit(storeName: String) {
         viewModelScope.launch {
             // 1. Send CHECK_OUT telemetry
-            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("auth_token", null)
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
             val deviceId = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("device_uuid", null) ?: java.util.UUID.randomUUID().toString()
             if (token != null) {
                 com.example.api.LocalBackendServiceClient.submitTelemetry(token, com.example.api.TelemetryEventCreate(deviceId, "CHECK_OUT", storeName, 1800))
@@ -1981,7 +1981,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
 
     fun completeCameraShelfScan(barcode: String, price: Double) {
         viewModelScope.launch {
-            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("auth_token", null)
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
             val deviceId = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("device_uuid", null) ?: java.util.UUID.randomUUID().toString()
             
             val item = com.example.api.CatalogItemCreate(

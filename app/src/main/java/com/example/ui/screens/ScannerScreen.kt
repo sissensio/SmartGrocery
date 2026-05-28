@@ -672,7 +672,7 @@ fun ScannerScreen(
                                     var shrinkflationAlert by remember(pItem.barcode) { mutableStateOf<com.example.api.ShrinkflationAlertResponse?>(null) }
                                     val context = androidx.compose.ui.platform.LocalContext.current
                                     LaunchedEffect(pItem.barcode) {
-                                        val token = context.getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("auth_token", null)
+                                        val token = context.getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
                                         shrinkflationAlert = com.example.api.LocalBackendServiceClient.checkSingleShrinkflation(token, pItem.barcode)
                                     }
                                     if (shrinkflationAlert != null) {
