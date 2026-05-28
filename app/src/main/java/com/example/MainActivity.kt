@@ -58,6 +58,14 @@ class MainActivity : FragmentActivity() {
                         currentTab = 2
                     }
                 }
+                
+                val reqTab by viewModel.requestTabSwitch.collectAsState()
+                LaunchedEffect(reqTab) {
+                    if (reqTab != null) {
+                        currentTab = reqTab!!
+                        viewModel.requestTabSwitch.value = null
+                    }
+                }
 
                 // Handle intent from Geofence notification ("SI" button)
                 LaunchedEffect(intent) {

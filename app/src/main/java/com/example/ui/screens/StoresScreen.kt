@@ -56,14 +56,44 @@ fun StoresScreen(
             }
         }
     }
+    
+    val selectedComparison by viewModel.selectedComparison.collectAsState()
+    var currentTab by remember { mutableIntStateOf(0) }
+    
+    LaunchedEffect(selectedComparison) {
+        if (selectedComparison != null) {
+            currentTab = 1
+        }
+    }
 
     Column(
         modifier = modifier
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        // Upper Title & Header
-        Row(
+        TabRow(
+            selectedTabIndex = currentTab,
+            containerColor = MaterialTheme.colorScheme.background,
+            contentColor = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(bottom = 16.dp).clip(RoundedCornerShape(12.dp))
+        ) {
+            Tab(
+                selected = currentTab == 0,
+                onClick = { currentTab = 0 },
+                text = { Text("Supermercati") },
+                icon = { Icon(Icons.Default.Store, contentDescription = null) }
+            )
+            Tab(
+                selected = currentTab == 1,
+                onClick = { currentTab = 1 },
+                text = { Text("Trova Prezzi") },
+                icon = { Icon(Icons.Default.Search, contentDescription = null) }
+            )
+        }
+
+        if (currentTab == 0) {
+            // Upper Title & Header
+            Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 16.dp),
@@ -334,6 +364,9 @@ fun StoresScreen(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Registra Negozio Manualmente", fontWeight = FontWeight.Bold)
             }
+        }
+        } else {
+            SmartShoppingTab(viewModel = viewModel)
         }
     }
 
@@ -633,5 +666,139 @@ fun StoresScreen(
                 }
             }
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SmartShoppingTab(viewModel: GroceryViewModel) {
+    val searchResults by viewModel.catalogSearchResults.collectAsState()
+    val comparison by viewModel.selectedComparison.collectAsState()
+    var query by remember { mutableStateOf("") }
+    
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.PriceCheck, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text(
+                    text = "Smart Shopping",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Text(
+                    text = "Cerca articoli per confrontarne i prezzi",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+            }
+        }
+
+        OutlinedTextField(
+            value = query,
+            onValueChange = { 
+                query = it
+                viewModel.searchCatalog(it)
+            },
+            placeholder = { Text("Cerca prodotto (es. Salsa Mutti)...") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+            trailingIcon = {
+                if (query.isNotBlank()) {
+                    IconButton(onClick = { 
+                        query = ""
+                        viewModel.searchCatalog("")
+                    }) {
+                        Icon(Icons.Default.Clear, contentDescription = null)
+                    }
+                }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(24.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+        )
+
+        LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(searchResults) { item ->
+                Card(
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        viewModel.fetchComparison(item.barcode, item.name)
+                    },
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(item.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                            if (item.brand != null) {
+                                Text(item.brand, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                            }
+                            if (item.barcode != null) {
+                                Text("Barcode: ${item.barcode}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                            }
+                        }
+                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+        }
+    }
+
+    if (comparison != null) {
+        Dialog(onDismissRequest = { viewModel.clearComparison() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(0.95f).clip(RoundedCornerShape(24.dp)),
+                color = MaterialTheme.colorScheme.surfaceVariant
+            ) {
+                Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(comparison!!.productName, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            if (comparison!!.brand != null) Text(comparison!!.brand!!, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
+                        }
+                        IconButton(onClick = { viewModel.clearComparison() }) {
+                            Icon(Icons.Default.Close, contentDescription = "Chiudi")
+                        }
+                    }
+
+                    if (comparison!!.prices.isEmpty()) {
+                        Text("Nessun prezzo registrato", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(comparison!!.prices.sortedBy { it.price }) { priceItem ->
+                                val isBestPrice = priceItem == comparison!!.prices.minByOrNull { it.price }
+                                Card(
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isBestPrice) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text(priceItem.storeName, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                            val priceStr = String.format(java.util.Locale.US, "%.2f€", priceItem.price)
+                                            Text(priceStr, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, color = if (isBestPrice) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                                        }
+                                        if (isBestPrice) {
+                                            Text("★ Miglior Prezzo", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                        }
+                                        if (priceItem.discountLabel != null) {
+                                            Text(priceItem.discountLabel, style = MaterialTheme.typography.labelSmall, color = com.example.ui.theme.SemanticRed)
+                                        }
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        val timeStr = priceItem.scannedAt.substringBefore("T") // fast format
+                                        Text("Rilevato da ${priceItem.scannedBy} il $timeStr", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

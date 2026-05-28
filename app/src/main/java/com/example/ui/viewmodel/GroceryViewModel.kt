@@ -161,6 +161,36 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    // --- Catalog Search and Compare ---
+    val catalogSearchResults = MutableStateFlow<List<com.example.api.CatalogItemResponse>>(emptyList())
+    val selectedComparison = MutableStateFlow<com.example.api.CatalogItemCompareResponse?>(null)
+
+    fun searchCatalog(query: String) {
+        viewModelScope.launch {
+            if (query.isBlank()) {
+                catalogSearchResults.value = emptyList()
+                return@launch
+            }
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("auth_token", null)
+            val results = com.example.api.LocalBackendServiceClient.searchCatalog(token, query)
+            catalogSearchResults.value = results
+        }
+    }
+
+    fun fetchComparison(barcode: String?, name: String?) {
+        viewModelScope.launch {
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("auth_token", null)
+            val comparison = com.example.api.LocalBackendServiceClient.compareCatalogPrices(token, barcode, name)
+            selectedComparison.value = comparison
+        }
+    }
+
+    fun clearComparison() {
+        selectedComparison.value = null
+    }
+    
+    val requestTabSwitch = MutableStateFlow<Int?>(null)
+
     val ledgerEntries: StateFlow<List<LedgerEntry>> = repository.ledgerEntries
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
@@ -1925,22 +1955,45 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
 
     fun completeCameraShelfScan(barcode: String, price: Double) {
         viewModelScope.launch {
-            // Push directly to repository list as an active item
-            val gItem = GroceryItem(
-                name = "Prodotto Scaffale ($barcode)",
-                brand = "Rilevamento AR",
-                price = price,
-                unitPrice = price,
-                category = "Dispensa",
-                isShared = true,
-                isPurchased = false,
-                urgencyColor = "GREEN",
-                lastPurchaseTimestamp = System.currentTimeMillis(),
-                barcode = barcode
-            )
-            repository.insertItem(gItem)
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("auth_token", null)
+            val deviceId = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("device_uuid", null) ?: java.util.UUID.randomUUID().toString()
             
-            simulateWebSocketNotification("Assistente Scaffale AR: EAN $barcode registrato a €${String.format(Locale.US, "%.2f", price)}")
+            val item = com.example.api.CatalogItemCreate(
+                barcode = barcode,
+                name = "Prodotto Scaffale ($barcode)",
+                brand = null,
+                category = null,
+                price = price,
+                unitPrice = null,
+                weight = null,
+                discountLabel = null,
+                storeName = "AR Rilevamento",
+                vatNumber = null
+            )
+            
+            val ok = com.example.api.LocalBackendServiceClient.submitShelfLabel(token, deviceId, item)
+            
+            if (ok) {
+                simulateWebSocketNotification("Assistente Scaffale AR: EAN $barcode registrato a €${String.format(java.util.Locale.US, "%.2f", price)}")
+                fetchComparison(barcode, null)
+                requestTabSwitch.value = 4 // Index for Stores tab
+            } else {
+                // Fallback to local
+                val gItem = GroceryItem(
+                    name = "Prodotto Scaffale ($barcode)",
+                    brand = "Rilevamento AR",
+                    price = price,
+                    unitPrice = price,
+                    category = "Dispensa",
+                    isShared = true,
+                    isPurchased = false,
+                    urgencyColor = "GREEN",
+                    lastPurchaseTimestamp = System.currentTimeMillis(),
+                    barcode = barcode
+                )
+                repository.insertItem(gItem)
+                simulateWebSocketNotification("Salvato in locale: EAN $barcode registrato a €${String.format(java.util.Locale.US, "%.2f", price)}")
+            }
         }
     }
 

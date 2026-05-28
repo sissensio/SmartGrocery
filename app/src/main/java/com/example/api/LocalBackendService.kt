@@ -11,6 +11,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -139,6 +140,41 @@ data class ActiveShoppingSessionResponse(
     @Json(name = "store_name") val storeName: String,
     @Json(name = "started_at") val startedAt: String,
     @Json(name = "dwell_time_seconds") val dwellTimeSeconds: Int
+)
+
+@JsonClass(generateAdapter = true)
+data class CatalogItemResponse(
+    @Json(name = "id") val id: Int,
+    @Json(name = "barcode") val barcode: String?,
+    @Json(name = "name") val name: String,
+    @Json(name = "brand") val brand: String?,
+    @Json(name = "category") val category: String?,
+    @Json(name = "price") val price: Double?,
+    @Json(name = "unit_price") val unitPrice: Double?,
+    @Json(name = "weight") val weight: Double?,
+    @Json(name = "discount_label") val discountLabel: String?,
+    @Json(name = "store_id") val storeId: Int?,
+    @Json(name = "scanned_by_user_id") val scannedByUserId: Int?,
+    @Json(name = "timestamp") val timestamp: String?
+)
+
+@JsonClass(generateAdapter = true)
+data class CatalogPriceComparisonItem(
+    @Json(name = "store_id") val storeId: Int,
+    @Json(name = "store_name") val storeName: String,
+    @Json(name = "price") val price: Double,
+    @Json(name = "unit_price") val unitPrice: Double?,
+    @Json(name = "discount_label") val discountLabel: String?,
+    @Json(name = "scanned_by") val scannedBy: String,
+    @Json(name = "scanned_at") val scannedAt: String
+)
+
+@JsonClass(generateAdapter = true)
+data class CatalogItemCompareResponse(
+    @Json(name = "product_name") val productName: String,
+    @Json(name = "barcode") val barcode: String?,
+    @Json(name = "brand") val brand: String?,
+    @Json(name = "prices") val prices: List<CatalogPriceComparisonItem>
 )
 
 @JsonClass(generateAdapter = true)
@@ -572,6 +608,56 @@ object LocalBackendServiceClient {
             }
         } catch (e: Exception) {
             return@withContext emptyList()
+        }
+    }
+
+    suspend fun searchCatalog(token: String?, query: String): List<CatalogItemResponse> = withContext(Dispatchers.IO) {
+        if (!isHostConfigured() || query.isBlank()) return@withContext emptyList()
+        // url encode query
+        val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
+        val url = "${getBaseUrl()}/api/v1/scan/catalog/search?q=$encodedQuery"
+        
+        val reqBuilder = Request.Builder().url(url)
+        if (token != null) reqBuilder.header("Authorization", "Bearer $token")
+        
+        val request = reqBuilder.get().build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext emptyList()
+                val bodyStr = response.body?.string() ?: return@withContext emptyList()
+                val type = Types.newParameterizedType(List::class.java, CatalogItemResponse::class.java)
+                val adapter = moshi.adapter<List<CatalogItemResponse>>(type)
+                return@withContext adapter.fromJson(bodyStr) ?: emptyList()
+            }
+        } catch (e: Exception) {
+            return@withContext emptyList()
+        }
+    }
+
+    suspend fun compareCatalogPrices(token: String?, barcode: String?, name: String?): CatalogItemCompareResponse? = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext null
+        if (barcode.isNullOrBlank() && name.isNullOrBlank()) return@withContext null
+        
+        val urlBuilder = "${getBaseUrl()}/api/v1/scan/catalog/compare".toHttpUrlOrNull()?.newBuilder() ?: return@withContext null
+        if (!barcode.isNullOrBlank()) {
+            urlBuilder.addQueryParameter("barcode", barcode)
+        } else if (!name.isNullOrBlank()) {
+            urlBuilder.addQueryParameter("name", name)
+        }
+        
+        val reqBuilder = Request.Builder().url(urlBuilder.build())
+        if (token != null) reqBuilder.header("Authorization", "Bearer $token")
+        
+        val request = reqBuilder.get().build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val bodyStr = response.body?.string() ?: return@withContext null
+                val adapter = moshi.adapter(CatalogItemCompareResponse::class.java)
+                return@withContext adapter.fromJson(bodyStr)
+            }
+        } catch (e: Exception) {
+            return@withContext null
         }
     }
 
