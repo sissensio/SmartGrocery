@@ -69,6 +69,8 @@ class MainActivity : FragmentActivity() {
                                 viewModel.startProcessingPendingReceipt(r)
                             }
                         }
+                    } else if (intent?.action == "ACTION_REFRESH_ACTIVE_SESSIONS") {
+                        viewModel.refreshActiveSessions()
                     }
                 }
 

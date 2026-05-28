@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -16,12 +17,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.delay
 import com.example.data.PendingReceipt
 import com.example.ui.theme.SemanticBlueInfo
 import com.example.ui.theme.SemanticRed
@@ -45,6 +49,17 @@ fun HomeScreen(
 
     val notifications by viewModel.notificationsList.collectAsState()
     val limitAlert by viewModel.transactionLimitAlertMessage.collectAsState()
+    val activeSessions by viewModel.activeShoppingSessions.collectAsState()
+
+    LaunchedEffect(Unit) {
+        viewModel.startPollingActiveSessions()
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.stopPollingActiveSessions()
+        }
+    }
 
     var microStoreName by remember { mutableStateOf("") }
     var microAmount by remember { mutableStateOf("") }
@@ -201,7 +216,16 @@ fun HomeScreen(
             }
         }
 
-        // Removed active geofencing in-app simulator dialog to prefer system notifications
+        // Active Sessions Banner
+        if (activeSessions.isNotEmpty()) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    activeSessions.forEach { session ->
+                        ActiveSessionBanner(session)
+                    }
+                }
+            }
+        }
 
         // Title Welcome Block
         item {
@@ -560,5 +584,52 @@ fun HomeScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+fun ActiveSessionBanner(session: com.example.api.ActiveShoppingSessionResponse) {
+    var localDwellTime by remember(session.startedAt) { mutableLongStateOf(session.dwellTimeSeconds.toLong()) }
+
+    LaunchedEffect(session.startedAt) {
+        while(isActive) {
+            delay(1000)
+            localDwellTime++
+        }
+    }
+
+    val minutes = localDwellTime / 60
+    val seconds = localDwellTime % 60
+    val timeString = String.format(java.util.Locale.US, "%02d:%02d", minutes, seconds)
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.fillMaxWidth().testTag("active_session_${session.userId}")
+    ) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+            val scale by infiniteTransition.animateFloat(
+                initialValue = 1f,
+                targetValue = 1.2f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(800),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "pulse_scale"
+            )
+
+            Icon(
+                imageVector = Icons.Default.ShoppingCart,
+                contentDescription = "Spesa in corso",
+                modifier = Modifier.size(24.dp).scale(scale),
+                tint = MaterialTheme.colorScheme.onTertiaryContainer
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column {
+                Text("${session.userName} è da ${session.storeName}!", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                Text("Spesa in corso da: $timeString", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
+            }
+        }
     }
 }

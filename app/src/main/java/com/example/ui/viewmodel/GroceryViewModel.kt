@@ -136,6 +136,31 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
     val pendingReceipts: StateFlow<List<PendingReceipt>> = repository.pendingReceipts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val activeShoppingSessions = MutableStateFlow<List<com.example.api.ActiveShoppingSessionResponse>>(emptyList())
+    private var activeSessionsJob: kotlinx.coroutines.Job? = null
+
+    fun startPollingActiveSessions() {
+        activeSessionsJob?.cancel()
+        activeSessionsJob = viewModelScope.launch {
+            while (true) {
+                refreshActiveSessions()
+                kotlinx.coroutines.delay(20000)
+            }
+        }
+    }
+
+    fun stopPollingActiveSessions() {
+        activeSessionsJob?.cancel()
+    }
+
+    fun refreshActiveSessions() {
+        viewModelScope.launch {
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("auth_token", null)
+            val sessions = com.example.api.LocalBackendServiceClient.getActiveShoppingSessions(token)
+            activeShoppingSessions.value = sessions
+        }
+    }
+
     val ledgerEntries: StateFlow<List<LedgerEntry>> = repository.ledgerEntries
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
@@ -1802,7 +1827,10 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("auth_token", null)
             val deviceId = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("device_uuid", null) ?: java.util.UUID.randomUUID().toString()
             if (token != null) {
-                com.example.api.LocalBackendServiceClient.submitTelemetry(token, com.example.api.TelemetryEventCreate(deviceId, "CHECK_IN", storeName, null))
+                val success = com.example.api.LocalBackendServiceClient.submitTelemetry(token, com.example.api.TelemetryEventCreate(deviceId, "CHECK_IN", storeName, null))
+                if (success) {
+                    refreshActiveSessions() // Force immediate refresh
+                }
             }
         }
     }

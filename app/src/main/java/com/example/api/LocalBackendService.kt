@@ -8,6 +8,7 @@ import com.example.BuildConfig
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -129,6 +130,15 @@ data class TelemetryEventCreate(
     @Json(name = "event_type") val eventType: String,
     @Json(name = "store_name") val storeName: String,
     @Json(name = "dwell_time_seconds") val dwellTimeSeconds: Int? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ActiveShoppingSessionResponse(
+    @Json(name = "user_id") val userId: Int,
+    @Json(name = "user_name") val userName: String,
+    @Json(name = "store_name") val storeName: String,
+    @Json(name = "started_at") val startedAt: String,
+    @Json(name = "dwell_time_seconds") val dwellTimeSeconds: Int
 )
 
 @JsonClass(generateAdapter = true)
@@ -541,6 +551,27 @@ object LocalBackendServiceClient {
             client.newCall(request).execute().use { return@withContext it.isSuccessful }
         } catch (e: Exception) {
             return@withContext false
+        }
+    }
+
+    suspend fun getActiveShoppingSessions(token: String?): List<ActiveShoppingSessionResponse> = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext emptyList()
+        val url = "${getBaseUrl()}/api/v1/scan/active_sessions"
+        
+        val reqBuilder = Request.Builder().url(url)
+        if (token != null) reqBuilder.header("Authorization", "Bearer $token")
+        
+        val request = reqBuilder.get().build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext emptyList()
+                val bodyStr = response.body?.string() ?: return@withContext emptyList()
+                val type = Types.newParameterizedType(List::class.java, ActiveShoppingSessionResponse::class.java)
+                val adapter = moshi.adapter<List<ActiveShoppingSessionResponse>>(type)
+                return@withContext adapter.fromJson(bodyStr) ?: emptyList()
+            }
+        } catch (e: Exception) {
+            return@withContext emptyList()
         }
     }
 
