@@ -35,6 +35,9 @@ interface GroceryDao {
     @Query("SELECT * FROM pending_receipts ORDER BY timestamp DESC")
     fun getPendingReceiptsFlow(): Flow<List<PendingReceipt>>
 
+    @Query("SELECT * FROM pending_receipts WHERE id = :id LIMIT 1")
+    suspend fun getPendingReceiptById(id: Long): PendingReceipt?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPendingReceipt(receipt: PendingReceipt): Long
 

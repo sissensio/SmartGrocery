@@ -595,7 +595,7 @@ fun ScannerScreen(
                                         if (offsetX.value > 150f) {
                                             scope.launch {
                                                 offsetX.animateTo(1000f, animationSpec = tween(durationMillis = 200))
-                                                viewModel.deleteScannedItem(index)
+                                                viewModel.deleteScannedItem(pItem)
                                             }
                                         } else {
                                             scope.launch {
@@ -706,7 +706,7 @@ fun ScannerScreen(
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 IconButton(
-                                    onClick = { viewModel.deleteScannedItem(index) },
+                                    onClick = { viewModel.deleteScannedItem(pItem) },
                                     modifier = Modifier.size(36.dp).testTag("delete_parsed_item_button_$index")
                                 ) {
                                     Icon(

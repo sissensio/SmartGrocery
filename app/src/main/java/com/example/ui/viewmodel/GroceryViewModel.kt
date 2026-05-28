@@ -587,6 +587,12 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                 repository.deleteLedgerEntry(LedgerEntry(id = matchingId, description = "", amount = 0.0, paidBy = ""))
             }
 
+            // If we are saving a receipt that was pending, we delete it from pending queue now that it is successful
+            val pending = currentlyScanningPendingReceipt.value
+            if (pending != null) {
+                repository.deletePendingReceipt(pending)
+            }
+
             // Reset scanned fields
             cancelScannerPreview()
 
@@ -793,9 +799,10 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         )
     }
 
-    fun deleteScannedItem(index: Int) {
+    fun deleteScannedItem(item: ParsedItem) {
         val currentList = scannedReceiptItems.value.toMutableList()
-        if (index in currentList.indices) {
+        val index = currentList.indexOfFirst { it.first === item || it.first == item }
+        if (index != -1) {
             currentList.removeAt(index)
             scannedReceiptItems.value = currentList
             scannedTotalAmount.value = currentList.sumOf { it.first.price }
@@ -863,6 +870,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         scannedReceiptTimestamp.value = null
         isReceiptDateAutoDetected.value = true
         scanError.value = null
+        currentlyScanningPendingReceipt.value = null
     }
 
     private fun extractReceiptTimestamp(rawText: String): Long? {
@@ -1087,38 +1095,41 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
 
         val isGenericA = listA.size <= 2 && listA.any { 
             val name = it.name.lowercase()
-            name.contains("reparto") || name.contains("spesa") || name.contains("supermercato") || name.contains("totale") || name.contains("scontrino") || name.contains("generico")
+            name.contains("reparto") || name.contains("spesa") || name.contains("supermercato") || name.contains("totale") || name.contains("scontrino") || name.contains("generico") || name.contains("pos") || name.contains("bancomat") || name.contains("pagamento")
         }
         val isGenericB = listB.size <= 2 && listB.any { 
             val name = it.name.lowercase()
-            name.contains("reparto") || name.contains("spesa") || name.contains("supermercato") || name.contains("totale") || name.contains("scontrino") || name.contains("generico")
+            name.contains("reparto") || name.contains("spesa") || name.contains("supermercato") || name.contains("totale") || name.contains("scontrino") || name.contains("generico") || name.contains("pos") || name.contains("bancomat") || name.contains("pagamento")
         }
 
         if (isGenericA && !isGenericB) return listB
         if (isGenericB && !isGenericA) return listA
 
         val mergedList = mutableListOf<ParsedItem>()
+        val unmatchedB = listB.toMutableList()
+
         for (itemA in listA) {
-            val matchB = listB.find { it.name.trim().lowercase() == itemA.name.trim().lowercase() }
+            // Match by name or exact price to avoid duplicating the same item recognized slightly differently by OCR
+            val matchB = unmatchedB.find { 
+                it.name.trim().lowercase() == itemA.name.trim().lowercase() || 
+                Math.abs(it.price - itemA.price) < 0.05 
+            }
             if (matchB != null) {
                 mergedList.add(itemA.copy(
                     brand = if (itemA.brand.isNotBlank()) itemA.brand else matchB.brand,
-                    category = if (itemA.category != "Dispensa") itemA.category else matchB.category,
+                    category = if (itemA.category != "Dispensa" && itemA.category != "Generico") itemA.category else matchB.category,
                     weight = itemA.weight ?: matchB.weight,
                     pricePerKg = itemA.pricePerKg ?: matchB.pricePerKg,
                     confidence = Math.max(itemA.confidence, matchB.confidence).coerceAtMost(1.0)
                 ))
+                unmatchedB.remove(matchB)
             } else {
                 mergedList.add(itemA)
             }
         }
 
-        for (itemB in listB) {
-            val isAlreadyMerged = listA.any { it.name.trim().lowercase() == itemB.name.trim().lowercase() }
-            if (!isAlreadyMerged) {
-                mergedList.add(itemB)
-            }
-        }
+        // Add any remaining items from B that didn't match A at all
+        mergedList.addAll(unmatchedB)
 
         return mergedList
     }
@@ -1781,8 +1792,41 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
 
     // --- Geofencing simulation states (Section 4.1) ---
 
+    // Removed the activeGeofenceNotification MutableStateFlow as we use system notifications now.
+    // So we don't display the in-app banner for exits. Note: We still keep activeGeofenceNotification
+    // temporarily if we didn't remove it from HomeScreen, but we should make sure it stays null.
+
     fun triggerSimulatedGeofenceEntrance(storeName: String) {
-        activeGeofenceNotification.value = storeName
+        // Send CHECK_IN telemetry to backend
+        viewModelScope.launch {
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("auth_token", null)
+            val deviceId = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("device_uuid", null) ?: java.util.UUID.randomUUID().toString()
+            if (token != null) {
+                com.example.api.LocalBackendServiceClient.submitTelemetry(token, com.example.api.TelemetryEventCreate(deviceId, "CHECK_IN", storeName, null))
+            }
+        }
+    }
+
+    fun triggerSimulatedGeofenceExit(storeName: String) {
+        viewModelScope.launch {
+            // 1. Send CHECK_OUT telemetry
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("auth_token", null)
+            val deviceId = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("device_uuid", null) ?: java.util.UUID.randomUUID().toString()
+            if (token != null) {
+                com.example.api.LocalBackendServiceClient.submitTelemetry(token, com.example.api.TelemetryEventCreate(deviceId, "CHECK_OUT", storeName, 1800))
+            }
+            
+            // 2. Create the Pending Receipt
+            val pReceipt = PendingReceipt(
+                storeName = storeName,
+                location = "Rilevato via geofence",
+                timestamp = System.currentTimeMillis()
+            )
+            val id = repository.insertPendingReceipt(pReceipt)
+            
+            // 3. Show System Notification
+            com.example.workers.NotificationHelper.showGeofenceCheckoutNotification(getApplication<Application>(), storeName, id.toInt())
+        }
     }
 
     fun triggerGeofenceNotificationAction(action: String) {
@@ -1826,6 +1870,10 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    suspend fun getPendingReceiptById(id: Long): PendingReceipt? {
+        return repository.getPendingReceiptById(id)
+    }
+
     fun startProcessingPendingReceipt(receipt: PendingReceipt) {
         viewModelScope.launch {
             // Pre-fill metadata, mark as active scanning pending, open IMMERSIVE full screen camera
@@ -1842,13 +1890,6 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             // Load and parse items
             val ocrText = rawLines.joinToString("\n")
             processScanningWithGemini(ocrText, elements)
-            
-            // Delete the related pending receipt now that acquisition is completed!
-            val pending = currentlyScanningPendingReceipt.value
-            if (pending != null) {
-                repository.deletePendingReceipt(pending)
-                currentlyScanningPendingReceipt.value = null
-            }
             
             isFullScreenCameraOpen.value = false
         }

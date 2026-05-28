@@ -59,6 +59,19 @@ class MainActivity : FragmentActivity() {
                     }
                 }
 
+                // Handle intent from Geofence notification ("SI" button)
+                LaunchedEffect(intent) {
+                    if (intent?.action == "ACTION_SCAN_PENDING_RECEIPT") {
+                        val pendingReceiptId = intent.getIntExtra("pending_receipt_id", -1)
+                        if (pendingReceiptId != -1) {
+                            val r = viewModel.getPendingReceiptById(pendingReceiptId.toLong())
+                            if (r != null) {
+                                viewModel.startProcessingPendingReceipt(r)
+                            }
+                        }
+                    }
+                }
+
                 Scaffold(
                     modifier = Modifier.fillMaxSize(),
                     bottomBar = {

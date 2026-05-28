@@ -769,7 +769,7 @@ fun GlobalSettingsDialog(
                                                 color = MaterialTheme.colorScheme.secondary
                                             )
                                             Text(
-                                                text = "Simula l'allontanamento fisico da un supermercato sensibile per attivare il trigger della barra di pagamento.",
+                                                text = "Simula l'ingresso o l'uscita da un supermercato sensibile. L'ingresso genera telemetria. L'uscita attiva la notifica dell'OS (CheckOut) per caricare lo scontrino.",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -778,28 +778,45 @@ fun GlobalSettingsDialog(
                                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
                                                 Button(
-                                                    onClick = {
-                                                        viewModel.triggerSimulatedGeofenceEntrance("Esselunga")
-                                                        onDismiss()
-                                                    },
+                                                    onClick = { viewModel.triggerSimulatedGeofenceEntrance("Esselunga") },
                                                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
                                                     shape = RoundedCornerShape(20.dp),
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .testTag("settings_simulate_esselunga")
+                                                    modifier = Modifier.weight(1f)
                                                 ) {
-                                                    Text("Esci Esselunga", style = MaterialTheme.typography.labelSmall)
+                                                    Text("Entra Essel.", style = MaterialTheme.typography.labelSmall)
                                                 }
                                                 Button(
                                                     onClick = {
-                                                        viewModel.triggerSimulatedGeofenceEntrance("Lidl")
+                                                        viewModel.triggerSimulatedGeofenceExit("Esselunga")
                                                         onDismiss()
                                                     },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                                    shape = RoundedCornerShape(20.dp),
+                                                    modifier = Modifier.weight(1f).testTag("settings_simulate_esselunga")
+                                                ) {
+                                                    Text("Esci Essel.", style = MaterialTheme.typography.labelSmall)
+                                                }
+                                            }
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Button(
+                                                    onClick = { viewModel.triggerSimulatedGeofenceEntrance("Lidl") },
                                                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
                                                     shape = RoundedCornerShape(20.dp),
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .testTag("settings_simulate_lidl")
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    Text("Entra Lidl", style = MaterialTheme.typography.labelSmall)
+                                                }
+                                                Button(
+                                                    onClick = {
+                                                        viewModel.triggerSimulatedGeofenceExit("Lidl")
+                                                        onDismiss()
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                                    shape = RoundedCornerShape(20.dp),
+                                                    modifier = Modifier.weight(1f).testTag("settings_simulate_lidl")
                                                 ) {
                                                     Text("Esci Lidl", style = MaterialTheme.typography.labelSmall)
                                                 }

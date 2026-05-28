@@ -110,6 +110,28 @@ data class DeviceStatusDto(
 )
 
 @JsonClass(generateAdapter = true)
+data class CatalogItemCreate(
+    @Json(name = "barcode") val barcode: String,
+    @Json(name = "name") val name: String,
+    @Json(name = "brand") val brand: String?,
+    @Json(name = "category") val category: String?,
+    @Json(name = "price") val price: Double?,
+    @Json(name = "unit_price") val unitPrice: Double?,
+    @Json(name = "weight") val weight: Double?,
+    @Json(name = "discount_label") val discountLabel: String?,
+    @Json(name = "store_name") val storeName: String?,
+    @Json(name = "vat_number") val vatNumber: String?
+)
+
+@JsonClass(generateAdapter = true)
+data class TelemetryEventCreate(
+    @Json(name = "device_uuid") val deviceUuid: String,
+    @Json(name = "event_type") val eventType: String,
+    @Json(name = "store_name") val storeName: String,
+    @Json(name = "dwell_time_seconds") val dwellTimeSeconds: Int? = null
+)
+
+@JsonClass(generateAdapter = true)
 data class SyncRequest(
     @Json(name = "device_uuid") val deviceUuid: String,
     @Json(name = "pending_ledger_entries") val pendingLedgerEntries: List<LedgerSubmitRequest>,
@@ -455,6 +477,70 @@ object LocalBackendServiceClient {
             }
         } catch (e: Exception) {
             return@withContext 500
+        }
+    }
+
+    suspend fun updateLedgerEntry(token: String?, deviceUuid: String, entryId: Int, storeName: String, amount: Double, timestamp: Long, items: List<LedgerItemDto>?, clientUuid: String): Int = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext 250
+        val url = "${getBaseUrl()}/api/v1/ledger/$entryId"
+        
+        val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(timestamp))
+        
+        val req = LedgerSubmitRequest(
+            storeName = storeName,
+            amount = amount,
+            date = dateStr,
+            paidBy = "Io",
+            isShared = true,
+            clientUuid = clientUuid,
+            items = items
+        )
+        
+        val json = moshi.adapter(LedgerSubmitRequest::class.java).toJson(req)
+        val reqBuilder = Request.Builder().url(url)
+            .header("X-Device-ID", deviceUuid)
+        if (token != null) {
+            reqBuilder.header("Authorization", "Bearer $token")
+        }
+        val request = reqBuilder.put(json.toRequestBody("application/json".toMediaType())).build()
+        try {
+            client.newCall(request).execute().use { response ->
+                return@withContext response.code
+            }
+        } catch (e: Exception) {
+            return@withContext 500
+        }
+    }
+    
+    suspend fun submitShelfLabel(token: String?, deviceUuid: String, item: CatalogItemCreate): Boolean = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext false
+        val url = "${getBaseUrl()}/api/v1/scan/shelflabel"
+        val json = moshi.adapter(CatalogItemCreate::class.java).toJson(item)
+        
+        val reqBuilder = Request.Builder().url(url).header("X-Device-ID", deviceUuid)
+        if (token != null) reqBuilder.header("Authorization", "Bearer $token")
+        
+        val request = reqBuilder.post(json.toRequestBody("application/json".toMediaType())).build()
+        try {
+            client.newCall(request).execute().use { return@withContext it.isSuccessful }
+        } catch (e: Exception) {
+            return@withContext false
+        }
+    }
+    
+    suspend fun submitTelemetry(token: String?, event: TelemetryEventCreate): Boolean = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext false
+        val url = "${getBaseUrl()}/api/v1/scan/telemetry"
+        val json = moshi.adapter(TelemetryEventCreate::class.java).toJson(event)
+        
+        val reqBuilder = Request.Builder().url(url).header("X-Device-ID", event.deviceUuid)
+        if (token != null) reqBuilder.header("Authorization", "Bearer $token")
+        
+        val request = reqBuilder.post(json.toRequestBody("application/json".toMediaType())).build()
+        try {
+            client.newCall(request).execute().use { return@withContext it.isSuccessful }
+        } catch (e: Exception) {
+            return@withContext false
         }
     }
 
