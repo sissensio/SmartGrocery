@@ -52,6 +52,9 @@ Ogni agente compila questa tabella dopo modifiche rilevanti per evitare regressi
 | **2026-05-27 19:40** | AI Studio | `SyncNotificationAcksWorker.kt`, `GroceryViewModel.kt`, `LocalBackendService.kt`, `HomeScreen.kt`, `build.gradle.kts` | **Frontend Integration - Notifications & Limits**: Implementato `SyncNotificationAcksWorker` con Android WorkManager per gestire la sincronizzazione differita e in background degli acknowledge delle notifiche lettate in modalità offline verso il backend locale. Inserite chiamate di polling automatico e queue del worker all'avvio. Esteso `LocalBackendService` per includere correttamente l'header `X-Device-ID` e gestire lo state flow dell'app. Aggiunto `AlertDialog` in `HomeScreen` per la notifica tempestiva dei superamenti del limite transazione (HTTP 403). Risolti problemi di test (NPE nei Robolectric suites) anticipando le inizializzazioni dello stato offline. | ✅ Allineato & Compilato |
 | **2026-05-27 19:55** | AI Studio | `network_config.json`, `BiometricKeyManager`, `GroceryViewModel.kt`, `GlobalSettingsScreen.kt`, `MainActivity.kt` | **IP Update & Biometric RSA Integration**: Aggiornato IP LAN a `192.168.111.101`. Completata implementazione del flusso 4.1 "Registrazione & Login Biometrico": aggiunto `androidx.biometric:biometric` al progetto, convertito `MainActivity` a `FragmentActivity`, aggiunto `.setUserAuthenticationRequired(true)` in `KeyGenParameterSpec` e implementato l'intero ciclo interattivo asincrono con `androidx.biometric.BiometricPrompt` nella UI (`GlobalSettingsScreen.kt`) per firmare in locale il challenge (nonce) del backend tramite chiavi RSA hardware sicure. | ✅ Allineato & Compilato |
 | **2026-05-27 21:08** | AI Studio | `LocalBackendService.kt` | **Fix Payload 422 `submitLedgerEntry`**: Corretto JSON payload verso l'endpoint `POST /api/v1/ledger`. Sistemata incompatibilità del DTO `LedgerSubmitRequest` ("store_name" in "storeName" e "timestamp" in "date" stringata YYYY-MM-DD), per allineamento esatto allo schema Pydantic atteso. | ✅ Allineato & Compilato |
+| **2026-05-28 10:23** | AI Studio & Antigravity | Full Integration Sync | **Integrazione Mobile & Backend Completata**: Cablato l'endpoint `PUT` per la de-duplica atomica. Relocate le opzioni sviluppatore, simulatori di geofence e preset OCR sotto il pannello di debug visibile solo per `role == ADMIN`. Attivate notifiche nativa OS con DeepLink per inquadrare scontrini in sospeso, e chiamate OkHttp per la telemetria (`/telemetry` per alert tempo reale coinquilini) e catalogazione prezzi a scaffale (`/shelflabel`). | ✅ Integrazione Completata |
+| **2026-05-28 11:30** | AI Studio & Antigravity | Step 3: Shopping Sessions | **Step 3 Completato con Successo**: AI Studio ha ultimato la HomeScreen con il banner animato di "Spesa in Corso" a 60FPS con carrello pulsante, e polling asincrono periodico di 20s solo in foreground. MainActivity gestisce l'action `ACTION_REFRESH_ACTIVE_SESSIONS` per forzare il refresh immediato alla ricezione delle push broadcast dal server. | ✅ Integrazione Completata |
+| **2026-05-28 11:37** | AI Studio & Antigravity | Step 1: Crowdsourced Catalogue | **Deciso Target Successivo (Step 1)**: Pianificata l'integrazione del catalogo prezzi crowdsourced all'interno di `StoresScreen` (tab "Negozi"). Il backend espone `GET /catalog/search` per la ricerca parziale di prodotti e `GET /catalog/compare` per il confronto prezzi tra supermercati ordinati dal più conveniente, evidenziando il risparmio potenziale. | ✅ Sviluppo in Corso |
 
 ---
 
@@ -121,3 +124,121 @@ Quando l'utente finalizza ed integra uno scontrino scansionato:
 > [!TIP]
 > **Consiglio per AI Studio (Frontend)**:
 > Tutti gli endpoint sopra indicati sono pronti e auto-documentati nel pannello interattivo Swagger UI all'indirizzo `http://<LOCAL_BACKEND_IP>:8000/docs` una volta avviato il backend locale. AI Studio può avviare l'emulatore Android, effettuare il `git pull` per aggiornare `network_config.json` contenente l'IP dinamico locale del server, e avviare l'integrazione Kotlin con i router ed i contratti definiti.
+
+### 🛍️ 4.4 Riconciliazione Avanzata Scontrini Duplicati (PUT)
+Quando il client Android rileva e de-duplica gli articoli di uno scontrino (es. merge di una scansione POS ed uno scontrino cartaceo), deve inviare l'aggiornamento consolidato al server:
+* **Endpoint**: `PUT /api/v1/ledger/{entry_id}`
+* **Payload**: Lo stesso JSON di `LedgerCreate` (lista articoli puliti e de-duplicati in `items`, totale spesa corretto in `amount`).
+* **Logica**: Il server eliminerà in modo atomico i vecchi prodotti relazionati da `ItemPriceHistory` per quella spesa e li sostituirà con il nuovo breakdown de-duplicato, ricalcolando le statistiche.
+
+### 🏷️ 4.5 Scansione Avanzata Etichette Scaffale (ShelfLabel Catalog)
+Il backend supporta la raccolta crowdsourced dei prezzi a scaffale per arricchire il database storico dei supermercati:
+* **Endpoint**: `POST /api/v1/scan/shelflabel`
+* **Headers**: `Authorization: Bearer <token>`
+* **Payload (`CatalogItemCreate`)**:
+```json
+{
+  "barcode": "8001234567890",
+  "name": "Salsa Pronta di Ciliegino",
+  "brand": "Mutti",
+  "category": "Dispensa",
+  "price": 1.89,
+  "unitPrice": 5.40,
+  "weight": 0.35,
+  "discountLabel": "Sconto 15%",
+  "storeName": "Coop",
+  "vatNumber": "55566677788"
+}
+```
+
+### 🛰️ 4.6 Telemetria Geofencing & Alert Coinquilini in Tempo Reale
+Per tenere aggiornata la casa sulle abitudini di spesa dei coinquilini e permettere check-in immediati:
+* **Endpoint**: `POST /api/v1/scan/telemetry`
+* **Headers**: `Authorization: Bearer <token>`
+* **Payload (`TelemetryEventCreate`)**:
+```json
+{
+  "device_uuid": "string (UUID hardware)",
+  "event_type": "CHECK_IN", // o "CHECK_OUT"
+  "store_name": "Esselunga",
+  "dwell_time_seconds": null // opzionale, valorizzato su CHECK_OUT
+}
+```
+* **Comportamento Check-In**: Quando il client rileva l'ingresso in un geofence ed invia un evento `CHECK_IN`, il backend genera **automaticamente ed istantaneamente una notifica push Broadcast** per informare gli altri coinquilini: *"Spesa in Corso! 🛒 Mario Rossi è appena entrato da Esselunga! Ti serve qualcosa? Chiediglielo al volo!"*.
+
+### 🛒 4.7 Polling di Stato: Sessioni di Spesa Attive in Tempo Reale (Step 3)
+Per popolare il banner animato premium nella HomeScreen dei coinquilini e visualizzare chi sta facendo la spesa in questo momento:
+* **Endpoint**: `GET /api/v1/scan/active_sessions`
+* **Headers**: `Authorization: Bearer <token>`
+* **Risposta JSON (`List[ActiveShoppingSessionResponse]`)**:
+```json
+[
+  {
+    "user_id": 1,
+    "user_name": "Mario Rossi",
+    "store_name": "Esselunga",
+    "started_at": "2026-05-28T10:30:00.123Z",
+    "dwell_time_seconds": 180
+  }
+]
+```
+
+### 🏷️ 4.8 Ricerca nel Catalogo Crowdsourced (Step 1)
+Per cercare i prodotti catalogati crowdsourced per nome o codice a barre:
+* **Endpoint**: `GET /api/v1/scan/catalog/search`
+* **Headers**: `Authorization: Bearer <token>`
+* **Query Parameters**: `q` (stringa di ricerca per barcode o nome parziale, minimo 2 caratteri)
+* **Risposta JSON (`List[CatalogItemResponse]`)**:
+```json
+[
+  {
+    "id": 12,
+    "barcode": "8001234567890",
+    "name": "Salsa Pronta di Ciliegino",
+    "brand": "Mutti",
+    "category": "Dispensa",
+    "price": 1.89,
+    "unit_price": 5.40,
+    "weight": 0.35,
+    "discount_label": "Sconto 15%",
+    "store_id": 3,
+    "scanned_by_user_id": 1,
+    "timestamp": "2026-05-28T10:30:00"
+  }
+]
+```
+
+### 📊 4.9 Confronto Prezzi Crowdsourced tra Negozi dello Stesso Prodotto (Step 1)
+Per visualizzare l'elenco dei prezzi a scaffale registrati nei vari negozi per un dato articolo, ordinati dal più conveniente:
+* **Endpoint**: `GET /api/v1/scan/catalog/compare`
+* **Headers**: `Authorization: Bearer <token>`
+* **Query Parameters**: `barcode` (opzionale se viene passato `name`) o `name` (opzionale se viene passato `barcode`).
+* **Risposta JSON (`CatalogItemCompareResponse`)**:
+```json
+{
+  "product_name": "Salsa Pronta di Ciliegino",
+  "barcode": "8001234567890",
+  "brand": "Mutti",
+  "prices": [
+    {
+      "store_id": 2,
+      "store_name": "Esselunga",
+      "price": 1.65,
+      "unit_price": 4.71,
+      "discount_label": "Offerta Speciale",
+      "scanned_by": "Mario Rossi",
+      "scanned_at": "2026-05-26T12:00:00"
+    },
+    {
+      "store_id": 3,
+      "store_name": "Coop",
+      "price": 1.89,
+      "unit_price": 5.40,
+      "discount_label": "Sconto 15%",
+      "scanned_by": "Recon Tester",
+      "scanned_at": "2026-05-28T10:30:00"
+    }
+  ]
+}
+```
+* **Logica Server**: L'endpoint recupera l'ultimo prezzo a scaffale registrato per ciascun store in cui il prodotto è stato scansionato, escludendo rilevazioni obsolete dello stesso negozio, e li ordina in senso crescente di prezzo (dal più economico al più caro) per agevolare il confronto.
