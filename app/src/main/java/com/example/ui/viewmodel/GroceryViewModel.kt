@@ -191,6 +191,32 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
     
     val requestTabSwitch = MutableStateFlow<Int?>(null)
 
+    // --- Shrinkflation Alerts ---
+    val shrinkflationAlerts = MutableStateFlow<List<com.example.api.ShrinkflationAlertResponse>>(emptyList())
+    val activeShrinkflationAlert = MutableStateFlow<com.example.api.ShrinkflationAlertResponse?>(null)
+
+    fun fetchShrinkflationAlerts() {
+        viewModelScope.launch {
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("auth_token", null)
+            val alerts = com.example.api.LocalBackendServiceClient.getShrinkflationAlerts(token)
+            shrinkflationAlerts.value = alerts
+        }
+    }
+
+    fun checkSingleShrinkflation(barcode: String) {
+        viewModelScope.launch {
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("auth_token", null)
+            val alert = com.example.api.LocalBackendServiceClient.checkSingleShrinkflation(token, barcode)
+            if (activeShrinkflationAlert.value != alert) {
+                activeShrinkflationAlert.value = alert
+            }
+        }
+    }
+
+    fun clearActiveShrinkflationAlert() {
+        activeShrinkflationAlert.value = null
+    }
+
     val ledgerEntries: StateFlow<List<LedgerEntry>> = repository.ledgerEntries
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 

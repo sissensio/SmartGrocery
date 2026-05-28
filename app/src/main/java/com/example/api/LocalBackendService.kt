@@ -178,6 +178,21 @@ data class CatalogItemCompareResponse(
 )
 
 @JsonClass(generateAdapter = true)
+data class ShrinkflationAlertResponse(
+    @Json(name = "itemName") val itemName: String,
+    @Json(name = "brand") val brand: String,
+    @Json(name = "originalWeight") val originalWeight: Double,
+    @Json(name = "newWeight") val newWeight: Double,
+    @Json(name = "weightReductionPercent") val weightReductionPercent: Double,
+    @Json(name = "originalPrice") val originalPrice: Double,
+    @Json(name = "newPrice") val newPrice: Double,
+    @Json(name = "priceIncreasePercent") val priceIncreasePercent: Double,
+    @Json(name = "detectedAt") val detectedAt: String,
+    @Json(name = "store") val store: String,
+    @Json(name = "barcode") val barcode: String?
+)
+
+@JsonClass(generateAdapter = true)
 data class SyncRequest(
     @Json(name = "device_uuid") val deviceUuid: String,
     @Json(name = "pending_ledger_entries") val pendingLedgerEntries: List<LedgerSubmitRequest>,
@@ -654,6 +669,47 @@ object LocalBackendServiceClient {
                 if (!response.isSuccessful) return@withContext null
                 val bodyStr = response.body?.string() ?: return@withContext null
                 val adapter = moshi.adapter(CatalogItemCompareResponse::class.java)
+                return@withContext adapter.fromJson(bodyStr)
+            }
+        } catch (e: Exception) {
+            return@withContext null
+        }
+    }
+
+    suspend fun getShrinkflationAlerts(token: String?): List<ShrinkflationAlertResponse> = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext emptyList()
+        val url = "${getBaseUrl()}/api/v1/scan/catalog/shrinkflation"
+        
+        val reqBuilder = Request.Builder().url(url)
+        if (token != null) reqBuilder.header("Authorization", "Bearer $token")
+        
+        val request = reqBuilder.get().build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext emptyList()
+                val bodyStr = response.body?.string() ?: return@withContext emptyList()
+                val type = Types.newParameterizedType(List::class.java, ShrinkflationAlertResponse::class.java)
+                val adapter = moshi.adapter<List<ShrinkflationAlertResponse>>(type)
+                return@withContext adapter.fromJson(bodyStr) ?: emptyList()
+            }
+        } catch (e: Exception) {
+            return@withContext emptyList()
+        }
+    }
+
+    suspend fun checkSingleShrinkflation(token: String?, barcode: String): ShrinkflationAlertResponse? = withContext(Dispatchers.IO) {
+        if (!isHostConfigured() || barcode.isBlank()) return@withContext null
+        val url = "${getBaseUrl()}/api/v1/scan/catalog/$barcode/shrinkflation"
+        
+        val reqBuilder = Request.Builder().url(url)
+        if (token != null) reqBuilder.header("Authorization", "Bearer $token")
+        
+        val request = reqBuilder.get().build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val bodyStr = response.body?.string() ?: return@withContext null
+                val adapter = moshi.adapter(ShrinkflationAlertResponse::class.java)
                 return@withContext adapter.fromJson(bodyStr)
             }
         } catch (e: Exception) {
