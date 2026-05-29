@@ -16,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -48,6 +49,10 @@ fun HomeScreen(
     val isGemini by viewModel.isGeminiActive.collectAsState()
 
     val notifications by viewModel.notificationsList.collectAsState()
+    val allNotifications by viewModel.allBackendNotifications.collectAsState()
+    val unreadCount by viewModel.unreadNotificationsCount.collectAsState()
+    var showNotificationCenter by remember { mutableStateOf(false) }
+
     val limitAlert by viewModel.transactionLimitAlertMessage.collectAsState()
     val activeSessions by viewModel.activeShoppingSessions.collectAsState()
 
@@ -123,98 +128,6 @@ fun HomeScreen(
             }
         }
 
-        // Targeted Notifications Board (Section 5.5)
-        if (notifications.isNotEmpty()) {
-            item {
-                Card(
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
-                    ),
-                    modifier = Modifier.fillMaxWidth().testTag("notifications_card_holder")
-                ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(imageVector = Icons.Default.NotificationsActive, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Bacheca Coinquilini (${notifications.size})",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
-                        }
-
-                        notifications.forEach { notif ->
-                            Card(
-                                shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surface
-                                ),
-                                modifier = Modifier.fillMaxWidth().testTag("notification_item_${notif.id}")
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            val badgeColor = when (notif.type.uppercase()) {
-                                                "GEO" -> com.example.ui.theme.SemanticYellow
-                                                "STORE_SPECIFIC" -> MaterialTheme.colorScheme.primary
-                                                else -> com.example.ui.theme.SemanticBlueInfo
-                                            }
-                                            Box(
-                                                modifier = Modifier
-                                                    .background(badgeColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
-                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                                            ) {
-                                                Text(
-                                                    text = notif.type,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = badgeColor,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                            if (notif.targetCity != null) {
-                                                Text(
-                                                    text = "📍 ${notif.targetCity}",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = notif.title,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            text = notif.body,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-
-                                    IconButton(
-                                        onClick = { viewModel.acknowledgeNotification(notif.id) },
-                                        modifier = Modifier.testTag("ack_notif_btn_${notif.id}")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.CheckCircle,
-                                            contentDescription = "Letto",
-                                            tint = com.example.ui.theme.SemanticGreen
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
         // Active Sessions Banner
         if (activeSessions.isNotEmpty()) {
@@ -249,6 +162,35 @@ fun HomeScreen(
                         color = MaterialTheme.colorScheme.secondary
                     )
                 }
+                
+                // Notification Bell
+                Box(modifier = Modifier.padding(end = 8.dp)) {
+                    IconButton(
+                        onClick = { showNotificationCenter = true },
+                        modifier = Modifier.testTag("home_notification_bell")
+                    ) {
+                        BadgedBox(
+                            badge = {
+                                if (unreadCount > 0) {
+                                    Badge(
+                                        containerColor = MaterialTheme.colorScheme.error,
+                                        contentColor = MaterialTheme.colorScheme.onError
+                                    ) {
+                                        Text(unreadCount.toString())
+                                    }
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Notifications,
+                                contentDescription = "Notifiche",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+                    }
+                }
+
                 IconButton(
                     onClick = { viewModel.showLocalAiSettingsDialog.value = true },
                     modifier = Modifier.testTag("home_settings_gear")
@@ -584,6 +526,127 @@ fun HomeScreen(
                 }
             }
         )
+    }
+
+    if (showNotificationCenter) {
+        ModalBottomSheet(
+            onDismissRequest = { showNotificationCenter = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            modifier = Modifier.fillMaxHeight(0.85f)
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp)
+                ) {
+                    Text("Notifiche", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.weight(1f))
+                    if (allNotifications.isNotEmpty()) {
+                        TextButton(onClick = { viewModel.deleteAllBackendNotifications() }) {
+                            Text("Svuota", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+
+                if (allNotifications.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("Nessuna notifica.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 40.dp)
+                    ) {
+                        items(allNotifications, key = { it.id }) { notif ->
+                            val dismissState = rememberSwipeToDismissBoxState(
+                                confirmValueChange = {
+                                    when (it) {
+                                        SwipeToDismissBoxValue.EndToStart -> {
+                                            viewModel.deleteBackendNotification(notif.id)
+                                            true
+                                        }
+                                        SwipeToDismissBoxValue.StartToEnd -> {
+                                            if (!notif.isRead) {
+                                                viewModel.acknowledgeNotification(notif.id)
+                                            }
+                                            false
+                                        }
+                                        else -> false
+                                    }
+                                }
+                            )
+
+                            SwipeToDismissBox(
+                                state = dismissState,
+                                modifier = Modifier.padding(vertical = 8.dp).clip(RoundedCornerShape(20.dp)),
+                                backgroundContent = {
+                                    val direction = dismissState.dismissDirection
+                                    if (direction == SwipeToDismissBoxValue.EndToStart) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(MaterialTheme.colorScheme.errorContainer)
+                                                .padding(horizontal = 24.dp),
+                                            contentAlignment = Alignment.CenterEnd
+                                        ) {
+                                            Icon(Icons.Default.Delete, contentDescription = "Elimina", tint = MaterialTheme.colorScheme.error)
+                                        }
+                                    } else if (direction == SwipeToDismissBoxValue.StartToEnd) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .background(Color(0xFF4CAF50).copy(alpha = 0.2f))
+                                                .padding(horizontal = 24.dp),
+                                            contentAlignment = Alignment.CenterStart
+                                        ) {
+                                            Icon(Icons.Default.CheckCircle, contentDescription = "Segna come letta", tint = Color(0xFF4CAF50))
+                                        }
+                                    }
+                                }
+                            ) {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().alpha(if (notif.isRead) 0.5f else 1f),
+                                    shape = RoundedCornerShape(20.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (notif.isRead) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.secondaryContainer
+                                    ),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = if (notif.isRead) 0.dp else 2.dp),
+                                    onClick = { viewModel.acknowledgeNotification(notif.id) }
+                                ) {
+                                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        if (!notif.isRead) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(12.dp)
+                                                    .background(Color(0xFF4CAF50), RoundedCornerShape(50))
+                                            )
+                                            Spacer(Modifier.width(16.dp))
+                                        } else {
+                                            Spacer(Modifier.width(8.dp))
+                                        }
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = notif.title, 
+                                                style = MaterialTheme.typography.titleMedium, 
+                                                fontWeight = if (notif.isRead) FontWeight.Normal else FontWeight.Bold,
+                                                color = if (notif.isRead) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSecondaryContainer
+                                            )
+                                            Spacer(Modifier.height(4.dp))
+                                            Text(
+                                                text = notif.body, 
+                                                style = MaterialTheme.typography.bodyMedium, 
+                                                color = if (notif.isRead) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSecondaryContainer
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -28,7 +28,10 @@ import kotlinx.coroutines.flow.map
 import java.text.SimpleDateFormat
 import java.util.*
 
-@OptIn(ExperimentalMaterial3Api::class)
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 fun StoresScreen(
     viewModel: GroceryViewModel,
@@ -44,6 +47,8 @@ fun StoresScreen(
     var editAddress by remember { mutableStateOf("") }
     var editVat by remember { mutableStateOf("") }
     var editPhone by remember { mutableStateOf("") }
+    var editLat by remember { mutableStateOf<Double?>(null) }
+    var editLng by remember { mutableStateOf<Double?>(null) }
 
     val filteredStores = remember(stores, searchQuery) {
         if (searchQuery.isBlank()) {
@@ -92,6 +97,48 @@ fun StoresScreen(
         }
 
         if (currentTab == 0) {
+            val context = androidx.compose.ui.platform.LocalContext.current
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                val bgLocationPermissionState = com.google.accompanist.permissions.rememberPermissionState(
+                    android.Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                )
+                if (!bgLocationPermissionState.status.isGranted) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "Geofencing richiede 'Consenti sempre'",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                            Text(
+                                text = "Per ricordarti di inserire lo scontrino quando esci da un supermercato, consenti all'app di accedere alla posizione in background in ogni momento.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+                            )
+                            Button(
+                                onClick = {
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                                        val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = android.net.Uri.fromParts("package", context.packageName, null)
+                                        }
+                                        context.startActivity(intent)
+                                    } else {
+                                        bgLocationPermissionState.launchPermissionRequest()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                            ) {
+                                Text("Attiva nei Settings")
+                            }
+                        }
+                    }
+                }
+            }
+
             // Upper Title & Header
             Row(
             modifier = Modifier
@@ -533,6 +580,8 @@ fun StoresScreen(
                                 editAddress = store.address ?: ""
                                 editVat = store.vatNumber ?: ""
                                 editPhone = store.phone ?: ""
+                                editLat = store.latitude
+                                editLng = store.longitude
                                 selectedStoreForDetail = null
                             },
                             modifier = Modifier.weight(1f)
@@ -623,6 +672,44 @@ fun StoresScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Column {
+                            if (editLat != null && editLng != null) {
+                                Text("Geofence Attivo", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                Text("\${editLat.toString().take(6)}, \${editLng.toString().take(6)}", style = MaterialTheme.typography.labelSmall)
+                            } else {
+                                Text("No Geofence", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                        Spacer(Modifier.weight(1f))
+                        val context = androidx.compose.ui.platform.LocalContext.current
+                        val locationPermissionState = com.google.accompanist.permissions.rememberMultiplePermissionsState(
+                            listOf(
+                                android.Manifest.permission.ACCESS_FINE_LOCATION,
+                                android.Manifest.permission.ACCESS_COARSE_LOCATION
+                            )
+                        )
+                        Button(onClick = {
+                            if (locationPermissionState.allPermissionsGranted) {
+                                try {
+                                    val fusedLocationClient = com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(context)
+                                    fusedLocationClient.lastLocation.addOnSuccessListener { location: android.location.Location? ->
+                                        if (location != null) {
+                                            editLat = location.latitude
+                                            editLng = location.longitude
+                                        }
+                                    }
+                                } catch (e: SecurityException) {
+                                    // Handle
+                                }
+                            } else {
+                                locationPermissionState.launchMultiplePermissionRequest()
+                            }
+                        }) {
+                            Text("Imposta Qui")
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -641,6 +728,8 @@ fun StoresScreen(
                                 vatNumber = cleanVat,
                                 address = cleanAddress,
                                 phone = cleanPhone,
+                                latitude = editLat,
+                                longitude = editLng,
                                 lastSeen = 0L
                             )
                             viewModel.saveStore(newStore)
@@ -650,6 +739,8 @@ fun StoresScreen(
                                 vatNumber = cleanVat,
                                 address = cleanAddress,
                                 phone = cleanPhone,
+                                latitude = editLat,
+                                longitude = editLng,
                                 lastSeen = originalStore.lastSeen
                             )
                             viewModel.saveStore(updatedStore)

@@ -103,7 +103,7 @@ secrets {
 dependencies {
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
-  // implementation(libs.accompanist.permissions)
+  implementation(libs.accompanist.permissions)
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.camera.camera2)
   implementation(libs.androidx.camera.core)
@@ -133,7 +133,7 @@ dependencies {
   implementation(libs.okhttp)
   implementation(libs.play.services.mlkit.text.recognition)
   implementation(libs.play.services.mlkit.barcode.scanning)
-  // implementation(libs.play.services.location)
+  implementation(libs.play.services.location)
   implementation(libs.retrofit)
   implementation(libs.androidx.work.runtime.ktx)
   implementation(libs.androidx.biometric)

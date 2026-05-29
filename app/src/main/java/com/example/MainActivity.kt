@@ -1,5 +1,7 @@
 package com.example
 
+import android.Manifest
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import androidx.fragment.app.FragmentActivity
@@ -32,8 +34,12 @@ import com.example.ui.screens.StoresScreen
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.outlined.Store
 import com.example.ui.theme.MyApplicationTheme
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
 
 class MainActivity : FragmentActivity() {
+    @OptIn(ExperimentalPermissionsApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
@@ -49,6 +55,17 @@ class MainActivity : FragmentActivity() {
 
         setContent {
             MyApplicationTheme {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    val notificationPermissionState = rememberPermissionState(
+                        android.Manifest.permission.POST_NOTIFICATIONS
+                    )
+                    LaunchedEffect(Unit) {
+                        if (!notificationPermissionState.status.isGranted) {
+                            notificationPermissionState.launchPermissionRequest()
+                        }
+                    }
+                }
+
                 val viewModel: GroceryViewModel = viewModel()
                 var currentTab by remember { mutableStateOf(0) }
 

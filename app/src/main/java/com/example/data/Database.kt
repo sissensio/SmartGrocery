@@ -107,19 +107,28 @@ interface GroceryDao {
     @Query("SELECT * FROM app_notifications WHERE isRead = 0 ORDER BY id DESC")
     fun getUnreadNotificationsFlow(): Flow<List<BackendNotificationEntity>>
 
+    @Query("SELECT * FROM app_notifications ORDER BY id DESC")
+    fun getAllNotificationsFlow(): Flow<List<BackendNotificationEntity>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertNotifications(notifications: List<BackendNotificationEntity>)
+
+    @Query("DELETE FROM app_notifications")
+    suspend fun deleteAllNotifications()
 
     @Query("UPDATE app_notifications SET isRead = 1 WHERE id = :id")
     suspend fun markNotificationAsRead(id: Int)
 
     @Query("DELETE FROM app_notifications WHERE id = :id")
     suspend fun deleteNotification(id: Int)
+
+    @Query("SELECT EXISTS(SELECT 1 FROM app_notifications WHERE id = :id)")
+    suspend fun hasNotification(id: Int): Boolean
 }
 
 @Database(
     entities = [GroceryItem::class, PendingReceipt::class, LedgerEntry::class, StoreInfo::class, NotificationAck::class, BackendNotificationEntity::class],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

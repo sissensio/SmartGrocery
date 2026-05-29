@@ -184,17 +184,6 @@ fun ScannerScreen(
                         color = MaterialTheme.colorScheme.secondary
                     )
                 }
-                IconButton(
-                    onClick = { viewModel.showLocalAiSettingsDialog.value = true },
-                    modifier = Modifier.testTag("scanner_settings_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Impostazioni AI",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
             }
         }
 

@@ -25,10 +25,6 @@ class MasterSyncWorker(
             val unsyncedLedgers = dao.getUnsyncedLedgerEntries()
             val unsyncedAcks = dao.getUnsyncedNotificationAcks()
 
-            if (unsyncedLedgers.isEmpty() && unsyncedAcks.isEmpty()) {
-                return@withContext Result.success()
-            }
-
             val prefs = applicationContext.getSharedPreferences("smart_grocery_prefs", Context.MODE_PRIVATE)
             val token = prefs.getString("user_token", null)
             val deviceUuid = prefs.getString("device_uuid", "") ?: ""
@@ -92,20 +88,42 @@ class MasterSyncWorker(
                 
                 // Insert new notifications into local Room DB
                 if (response.newNotifications.isNotEmpty()) {
-                    val localEntities = response.newNotifications.map {
-                        com.example.data.BackendNotificationEntity(
-                            id = it.id,
-                            title = it.title,
-                            body = it.body,
-                            type = it.type,
-                            targetStoreId = it.targetStoreId,
-                            targetCity = it.targetCity,
-                            targetRegion = it.targetRegion,
-                            createdAt = it.createdAt,
-                            isRead = false
-                        )
+                    val localEntities = mutableListOf<com.example.data.BackendNotificationEntity>()
+                    
+                    for (notif in response.newNotifications) {
+                        val exists = dao.hasNotification(notif.id)
+                        if (!exists) {
+                            // Show System Push Notification ONLY if we don't have it already
+                            com.example.workers.NotificationHelper.showBackendNotification(
+                                applicationContext,
+                                notif.id.toLong(),
+                                notif.title,
+                                notif.body
+                            )
+                        }
+                        
+                        // We still want to map them (e.g. if the user didn't ack them, we can ensure they're in DB)
+                        // But if it already exists, we SHOULD NOT overwrite isRead to false! 
+                        // So we only insert if it doesn't exist.
+                        if (!exists) {
+                            localEntities.add(
+                                com.example.data.BackendNotificationEntity(
+                                    id = notif.id,
+                                    title = notif.title,
+                                    body = notif.body,
+                                    type = notif.type,
+                                    targetStoreId = notif.targetStoreId,
+                                    targetCity = notif.targetCity,
+                                    targetRegion = notif.targetRegion,
+                                    createdAt = notif.createdAt,
+                                    isRead = false
+                                )
+                            )
+                        }
                     }
-                    dao.insertNotifications(localEntities)
+                    if (localEntities.isNotEmpty()) {
+                        dao.insertNotifications(localEntities)
+                    }
                 }
                 
                 // Store device status limits

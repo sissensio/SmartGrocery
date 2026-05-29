@@ -11,5 +11,8 @@ data class StoreInfo(
     val vatNumber: String? = null, // Partita IVA (11 digits, optional for unique key)
     val address: String? = null, // Address (if present)
     val phone: String? = null, // Telephone number (optional)
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val geofenceRadius: Float = 100f, // Meters
     val lastSeen: Long = System.currentTimeMillis()
 )

@@ -18,6 +18,9 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 
+import com.google.android.gms.location.Geofence
+import com.example.workers.GeofenceManager
+
 data class MatchedReceiptInfo(
     val storeName: String,
     val dateStr: String,
@@ -29,6 +32,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
 
     private val TAG = "GroceryViewModel"
     private val repository: GroceryRepository = GroceryRepository(AppDatabase.getDatabase(application).groceryDao())
+    private val geofenceManager = GeofenceManager(application)
 
     // --- Device UUID and authentication security states ---
     val deviceUuid = MutableStateFlow<String>("")
@@ -45,6 +49,13 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
     
     val notificationsList: StateFlow<List<com.example.api.BackendNotification>> = repository.unreadNotifications
         .map { list -> list.map { it.toApiModel() } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        
+    val unreadNotificationsCount: StateFlow<Int> = repository.unreadNotifications
+        .map { it.size }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    val allBackendNotifications: StateFlow<List<com.example.data.BackendNotificationEntity>> = repository.allNotifications
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // UI state states (Initialized above init block to prevent NPE in immediate Coroutines inside test suites)
@@ -67,34 +78,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
 
         viewModelScope.launch {
             try {
-                // Remove all mock/simulated pending receipts to guarantee no fake data on startup
-                val pendingList = repository.pendingReceipts.first()
-                pendingList.forEach { pending ->
-                    if (pending.location == "Via Milano, 5" || pending.location == "Corso Sempione, 46" ||
-                        pending.storeName == "Lidl" || pending.storeName == "Esselunga") {
-                        repository.deletePendingReceipt(pending)
-                    }
-                }
-                
-                // Clear out initial demo products if they are present in the persistent SQLite DB
-                val allGItems = repository.allItems.first()
-                allGItems.forEach { item ->
-                    if ((item.name == "Latte Intero" && item.brand == "Granarolo") ||
-                        (item.name == "Fette Biscottate" && item.brand == "Misura") ||
-                        (item.name == "Caffè Arabica" && item.brand == "Lavazza") ||
-                        (item.name == "Sgrassatore Universale" && item.brand == "Chanteclair")) {
-                        repository.deleteItem(item)
-                    }
-                }
-
-                // Clear out any initial demo ledger entries too
-                val allLedger = repository.ledgerEntries.first()
-                allLedger.forEach { entry ->
-                    if ((entry.description == "Spesa Esselunga" && entry.amount == 34.50) ||
-                        (entry.description == "Spesa Coop biologica" && entry.amount == 18.20)) {
-                        repository.deleteLedgerEntry(entry)
-                    }
-                }
+                // Boot checks handled here
             } catch (e: Exception) {
                 Log.e(TAG, "Error performing startup cleanup of demo data", e)
             }
@@ -105,6 +89,17 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             enqueueMasterSync()
         } catch (e: Exception) {
             Log.e(TAG, "Errore durante l'avvio del WorkManager", e)
+        }
+
+        // Keep geofences updated based on active stores containing lat/lng
+        viewModelScope.launch {
+            repository.allStores.collect { stores ->
+                try {
+                    geofenceManager.updateGeofences(stores)
+                } catch (e: SecurityException) {
+                    Log.e(TAG, "Missing location permissions to configure geofences")
+                }
+            }
         }
     }
 
@@ -144,6 +139,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         activeSessionsJob = viewModelScope.launch {
             while (true) {
                 refreshActiveSessions()
+                enqueueMasterSync()
                 kotlinx.coroutines.delay(20000)
             }
         }
@@ -389,97 +385,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
 
     // Populate default database state with beautiful products
     private suspend fun populateInitialDemoData() {
-        val defaultProducts = listOf(
-            GroceryItem(
-                name = "Latte Intero",
-                brand = "Granarolo",
-                price = 1.39,
-                unitPrice = 1.39,
-                category = "Latticini",
-                isShared = true,
-                urgencyColor = "RED", // Daily Need: Urgente (Esaurito)
-                lastPurchaseTimestamp = System.currentTimeMillis() - (6 * 24 * 60 * 60 * 1000L), // 6 days ago, delta is 3 days
-                averageDeltaDays = 3.0,
-                purchaseCount = 10,
-                storeName = "Esselunga"
-            ),
-            GroceryItem(
-                name = "Fette Biscottate",
-                brand = "Misura",
-                price = 1.85,
-                unitPrice = 4.30,
-                category = "Colazione",
-                isShared = true,
-                urgencyColor = "YELLOW", // Close to depletion (80%)
-                lastPurchaseTimestamp = System.currentTimeMillis() - (4 * 24 * 60 * 60 * 1000L), // 4 days ago
-                averageDeltaDays = 5.0,
-                purchaseCount = 4,
-                storeName = "Lidl"
-            ),
-            GroceryItem(
-                name = "Caffè Arabica",
-                brand = "Lavazza",
-                price = 3.49,
-                unitPrice = 13.96,
-                category = "Dispensa",
-                isShared = true,
-                urgencyColor = "GREEN", // stock sufficient
-                lastPurchaseTimestamp = System.currentTimeMillis() - (2 * 24 * 60 * 60 * 1000L),
-                averageDeltaDays = 14.0,
-                purchaseCount = 2,
-                storeName = "Coop"
-            ),
-            GroceryItem(
-                name = "Sgrassatore Universale",
-                brand = "Chanteclair",
-                price = 2.99,
-                unitPrice = 4.98,
-                category = "Igiene e Casa",
-                isShared = true,
-                urgencyColor = "GREEN",
-                lastPurchaseTimestamp = System.currentTimeMillis() - (5 * 24 * 60 * 60 * 1000L),
-                averageDeltaDays = 30.0,
-                purchaseCount = 1,
-                storeName = "Conad"
-            )
-        )
-
-        for (item in defaultProducts) {
-            repository.insertItem(item)
-        }
-
-        // Add 1 pending receipt for immediate UX action
-        repository.insertPendingReceipt(PendingReceipt(storeName = "Lidl", location = "Via Milano, 5", timestamp = System.currentTimeMillis() - (2 * 60 * 60 * 1000L)))
-        repository.insertPendingReceipt(PendingReceipt(storeName = "Esselunga", location = "Corso Sempione, 46", timestamp = System.currentTimeMillis() - (24 * 60 * 60 * 1000L)))
-
-        // Initial Ledger Entries
-        val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
-        val listType = Types.newParameterizedType(List::class.java, ParsedItem::class.java)
-        val adapter = moshi.adapter<List<ParsedItem>>(listType)
-
-        val esselungaItems = listOf(
-            ParsedItem(name = "Latte Intero", brand = "Granarolo", price = 1.39, category = "Latticini", isShared = true),
-            ParsedItem(name = "Pasta Rummo", brand = "Rummo", price = 1.62, category = "Dispensa", isShared = true),
-            ParsedItem(name = "Detersivo Piatti", brand = "Svelto", price = 1.99, category = "Igiene e Casa", isShared = true),
-            ParsedItem(name = "Filetto di Salmone", brand = "Noberasco", price = 14.50, category = "Macelleria", isShared = true),
-            ParsedItem(name = "Frutta Secca Mista", brand = "Noberasco", price = 5.20, category = "Dispensa", isShared = true),
-            ParsedItem(name = "Prosciutto Crudo", brand = "S.Daniele", price = 4.80, category = "Macelleria", isShared = true),
-            ParsedItem(name = "Insalata Bio", brand = "Esselunga", price = 1.85, category = "Frutta e Verdura", isShared = true),
-            ParsedItem(name = "Sgrassatore", brand = "Chanteclair", price = 3.15, category = "Igiene e Casa", isShared = true)
-        )
-
-        val coopItems = listOf(
-            ParsedItem(name = "Succo di Frutta Bio", brand = "Coop", price = 1.85, category = "Bevande", isShared = true),
-            ParsedItem(name = "Pane Integrale", brand = "Coop", price = 2.35, category = "Colazione", isShared = true),
-            ParsedItem(name = "Marmellata Ciliegie", brand = "Coop", price = 3.99, category = "Colazione", isShared = true),
-            ParsedItem(name = "Olio Extravergine", brand = "Monini", price = 10.01, category = "Dispensa", isShared = true)
-        )
-
-        val esselungaJson = adapter.toJson(esselungaItems)
-        val coopJson = adapter.toJson(coopItems)
-
-        repository.insertLedgerEntry(LedgerEntry(description = "Spesa Esselunga", amount = 34.50, paidBy = "Io", receiptItemsJson = esselungaJson))
-        repository.insertLedgerEntry(LedgerEntry(description = "Spesa Coop biologica", amount = 18.20, paidBy = "Partner", receiptItemsJson = coopJson))
+        // Strict adherence to Assenza di Dati Democratici / Fittizi. Do not inject.
     }
 
     // --- Core Operations ---
@@ -2315,6 +2221,18 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             } catch (e: Exception) {
                 Log.e(TAG, "Errore enqueue WorkManager", e)
             }
+        }
+    }
+
+    fun deleteBackendNotification(notificationId: Int) {
+        viewModelScope.launch {
+            repository.deleteNotification(notificationId)
+        }
+    }
+
+    fun deleteAllBackendNotifications() {
+        viewModelScope.launch {
+            repository.deleteAllNotifications()
         }
     }
 }
