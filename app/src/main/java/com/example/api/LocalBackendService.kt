@@ -95,12 +95,63 @@ data class LedgerItemDto(
 )
 
 @JsonClass(generateAdapter = true)
+data class UserProfileResponse(
+    @Json(name = "id") val id: Int,
+    @Json(name = "email") val email: String,
+    @Json(name = "full_name") val fullName: String?,
+    @Json(name = "profile_code") val profileCode: String?,
+    @Json(name = "default_group_id") val defaultGroupId: String?,
+    @Json(name = "created_at") val createdAt: String?
+)
+
+@JsonClass(generateAdapter = true)
+data class GroupMemberResponse(
+    @Json(name = "user_id") val userId: Int,
+    @Json(name = "full_name") val fullName: String?,
+    @Json(name = "email") val email: String,
+    @Json(name = "is_admin") val isAdmin: Boolean,
+    @Json(name = "joined_at") val joinedAt: String?
+)
+
+@JsonClass(generateAdapter = true)
+data class SpendingGroupResponse(
+    @Json(name = "id") val id: String,
+    @Json(name = "name") val name: String,
+    @Json(name = "created_by_user_id") val createdByUserId: Int,
+    @Json(name = "created_at") val createdAt: String?,
+    @Json(name = "members") val members: List<GroupMemberResponse>
+)
+
+@JsonClass(generateAdapter = true)
+data class ShoppingListItemResponse(
+    @Json(name = "id") val id: Int,
+    @Json(name = "list_id") val listId: String,
+    @Json(name = "name") val name: String,
+    @Json(name = "quantity") val quantity: Int,
+    @Json(name = "is_checked") val isChecked: Boolean,
+    @Json(name = "added_by_user_id") val addedByUserId: Int,
+    @Json(name = "added_at") val addedAt: String?
+)
+
+@JsonClass(generateAdapter = true)
+data class ShoppingListResponse(
+    @Json(name = "id") val id: String,
+    @Json(name = "name") val name: String,
+    @Json(name = "created_by_user_id") val createdByUserId: Int,
+    @Json(name = "is_shared") val isShared: Boolean,
+    @Json(name = "created_at") val createdAt: String?,
+    @Json(name = "items") val items: List<ShoppingListItemResponse>? = null
+)
+
+@JsonClass(generateAdapter = true)
 data class LedgerSubmitRequest(
     @Json(name = "storeName") val storeName: String,
     @Json(name = "amount") val amount: Double,
     @Json(name = "date") val date: String, // Stringa YYYY-MM-DD
     @Json(name = "paid_by") val paidBy: String = "Io",
     @Json(name = "is_shared") val isShared: Boolean = true,
+    @Json(name = "group_id") val groupId: String? = null,
+    @Json(name = "paid_by_user_id") val paidByUserId: Int? = null,
     @Json(name = "client_uuid") val clientUuid: String,
     @Json(name = "items") val items: List<LedgerItemDto>? = null
 )
@@ -391,6 +442,182 @@ object LocalBackendServiceClient {
         } catch (e: Exception) {
             lastApiError = e.localizedMessage
             return@withContext null
+        }
+    }
+
+    suspend fun getUserProfile(token: String?): UserProfileResponse? = withContext(Dispatchers.IO) {
+        if (!isHostConfigured() || token == null) return@withContext null
+        val url = "${getBaseUrl()}/api/v1/auth/me"
+        val request = Request.Builder().url(url).header("Authorization", "Bearer $token").build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext null
+                    return@withContext moshi.adapter(UserProfileResponse::class.java).fromJson(raw)
+                }
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            return@withContext null
+        }
+    }
+
+    suspend fun getSpendingGroups(token: String?): List<SpendingGroupResponse> = withContext(Dispatchers.IO) {
+        if (!isHostConfigured() || token == null) return@withContext emptyList()
+        val url = "${getBaseUrl()}/api/v1/groups"
+        val request = Request.Builder().url(url).header("Authorization", "Bearer $token").build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext emptyList()
+                    val type = Types.newParameterizedType(List::class.java, SpendingGroupResponse::class.java)
+                    return@withContext moshi.adapter<List<SpendingGroupResponse>>(type).fromJson(raw) ?: emptyList()
+                }
+                return@withContext emptyList()
+            }
+        } catch (e: Exception) {
+            return@withContext emptyList()
+        }
+    }
+
+    suspend fun createSpendingGroup(token: String?, name: String): SpendingGroupResponse? = withContext(Dispatchers.IO) {
+        if (!isHostConfigured() || token == null) return@withContext null
+        val url = "${getBaseUrl()}/api/v1/groups"
+        val json = """{"name":"$name"}"""
+        val request = Request.Builder().url(url)
+            .header("Authorization", "Bearer $token")
+            .post(json.toRequestBody("application/json".toMediaType())).build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext null
+                    return@withContext moshi.adapter(SpendingGroupResponse::class.java).fromJson(raw)
+                }
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            return@withContext null
+        }
+    }
+
+    suspend fun addMemberToGroup(token: String?, groupId: String, profileCode: String): GroupMemberResponse? = withContext(Dispatchers.IO) {
+        if (!isHostConfigured() || token == null) return@withContext null
+        val url = "${getBaseUrl()}/api/v1/groups/$groupId/members"
+        val json = """{"profile_code":"$profileCode"}"""
+        val request = Request.Builder().url(url)
+            .header("Authorization", "Bearer $token")
+            .post(json.toRequestBody("application/json".toMediaType())).build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext null
+                    return@withContext moshi.adapter(GroupMemberResponse::class.java).fromJson(raw)
+                }
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            return@withContext null
+        }
+    }
+
+    suspend fun setDefaultGroup(token: String?, groupId: String): Boolean = withContext(Dispatchers.IO) {
+        if (!isHostConfigured() || token == null) return@withContext false
+        val url = "${getBaseUrl()}/api/v1/groups/default"
+        val json = """{"group_id":"$groupId"}"""
+        val request = Request.Builder().url(url)
+            .header("Authorization", "Bearer $token")
+            .put(json.toRequestBody("application/json".toMediaType())).build()
+        try {
+            client.newCall(request).execute().use { response ->
+                return@withContext response.isSuccessful
+            }
+        } catch (e: Exception) {
+            return@withContext false
+        }
+    }
+
+    suspend fun removeMemberFromGroup(token: String?, groupId: String, userId: Int): Boolean = withContext(Dispatchers.IO) {
+        if (!isHostConfigured() || token == null) return@withContext false
+        val url = "${getBaseUrl()}/api/v1/groups/$groupId/members/$userId"
+        val request = Request.Builder().url(url)
+            .header("Authorization", "Bearer $token")
+            .delete().build()
+        try {
+            client.newCall(request).execute().use { response ->
+                return@withContext response.isSuccessful
+            }
+        } catch (e: Exception) {
+            return@withContext false
+        }
+    }
+
+    suspend fun getShoppingLists(token: String?): List<ShoppingListResponse> = withContext(Dispatchers.IO) {
+        if (!isHostConfigured() || token == null) return@withContext emptyList()
+        val url = "${getBaseUrl()}/api/v1/lists"
+        val request = Request.Builder().url(url).header("Authorization", "Bearer $token").build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext emptyList()
+                    val type = Types.newParameterizedType(List::class.java, ShoppingListResponse::class.java)
+                    return@withContext moshi.adapter<List<ShoppingListResponse>>(type).fromJson(raw) ?: emptyList()
+                }
+                return@withContext emptyList()
+            }
+        } catch (e: Exception) {
+            return@withContext emptyList()
+        }
+    }
+
+    suspend fun createShoppingList(token: String?, name: String): ShoppingListResponse? = withContext(Dispatchers.IO) {
+        if (!isHostConfigured() || token == null) return@withContext null
+        val url = "${getBaseUrl()}/api/v1/lists"
+        val json = """{"name":"$name"}"""
+        val request = Request.Builder().url(url)
+            .header("Authorization", "Bearer $token")
+            .post(json.toRequestBody("application/json".toMediaType())).build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext null
+                    return@withContext moshi.adapter(ShoppingListResponse::class.java).fromJson(raw)
+                }
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            return@withContext null
+        }
+    }
+
+    suspend fun shareShoppingList(token: String?, listId: String, profileCode: String?, groupId: String?): Boolean = withContext(Dispatchers.IO) {
+        if (!isHostConfigured() || token == null) return@withContext false
+        val url = "${getBaseUrl()}/api/v1/lists/$listId/share"
+        val json = if (profileCode != null) """{"profile_code":"$profileCode"}""" else """{"group_id":"$groupId"}"""
+        val request = Request.Builder().url(url)
+            .header("Authorization", "Bearer $token")
+            .post(json.toRequestBody("application/json".toMediaType())).build()
+        try {
+            client.newCall(request).execute().use { response ->
+                return@withContext response.isSuccessful
+            }
+        } catch (e: Exception) {
+            return@withContext false
+        }
+    }
+
+    suspend fun deleteLedgerEntry(token: String?, entryId: Int): Boolean = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext false
+        val url = "${getBaseUrl()}/api/v1/ledger/$entryId"
+        val reqBuilder = Request.Builder().url(url)
+        if (token != null) reqBuilder.header("Authorization", "Bearer $token")
+        
+        val request = reqBuilder.delete().build()
+        try {
+            client.newCall(request).execute().use { response ->
+                return@withContext response.isSuccessful
+            }
+        } catch (e: Exception) {
+            return@withContext false
         }
     }
 

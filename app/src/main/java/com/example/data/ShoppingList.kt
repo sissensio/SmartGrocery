@@ -8,8 +8,9 @@ import java.util.UUID
 data class ShoppingList(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
     val name: String,
-    val createdByUserId: String,
+    val createdByUserId: Int,
     val isShared: Boolean = false,
     val sharedWithGroupIds: List<String> = emptyList(),
-    val sharedWithUserIds: List<String> = emptyList()
+    val sharedWithUserIds: List<String> = emptyList(),
+    val items: List<com.example.api.ShoppingListItemResponse> = emptyList()
 )

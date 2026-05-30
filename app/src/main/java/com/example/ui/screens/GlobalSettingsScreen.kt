@@ -313,7 +313,7 @@ fun GlobalSettingsDialog(
                                             Spacer(modifier = Modifier.width(8.dp))
                                             Column {
                                                 Text(
-                                                    text = userEmailState ?: "sissensio@gmail.com",
+                                                    text = viewModel.userProfile.collectAsState().value?.fullName ?: userEmailState ?: "sissensio@gmail.com",
                                                     style = MaterialTheme.typography.bodyLarge,
                                                     fontWeight = FontWeight.Bold
                                                 )
@@ -332,6 +332,45 @@ fun GlobalSettingsDialog(
                                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                         ) {
                                             Text("ESCI", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.White)
+                                        }
+                                    }
+
+                                    val userProfile = viewModel.userProfile.collectAsState().value
+                                    if (userProfile?.profileCode != null) {
+                                        Surface(
+                                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)),
+                                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        "IL TUO CODICE PROFILO",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                    )
+                                                    Text(
+                                                        text = userProfile.profileCode,
+                                                        style = MaterialTheme.typography.titleMedium,
+                                                        fontWeight = FontWeight.Black,
+                                                        color = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+                                                val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+                                                IconButton(
+                                                    onClick = {
+                                                        clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(userProfile.profileCode))
+                                                        android.widget.Toast.makeText(context, "Codice Profilo copiato!", android.widget.Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape).size(36.dp)
+                                                ) {
+                                                    Icon(imageVector = Icons.Default.Share, contentDescription = "Copia Codice", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(16.dp))
+                                                }
+                                            }
                                         }
                                     }
 
@@ -476,6 +515,132 @@ fun GlobalSettingsDialog(
                                 if (isAuthLoading) {
                                     Spacer(modifier = Modifier.height(4.dp))
                                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+                    }
+
+                    val spendingGroups by viewModel.spendingGroups.collectAsState()
+                    val userProfile = viewModel.userProfile.collectAsState().value
+
+                    // SECTION 2.75: GRUPPI DI SPESA E COINQUILINI
+                    if (token != null) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "GRUPPI DI SPESA E COINQUILINI",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                    if (spendingGroups.isEmpty()) {
+                                        Text(
+                                            text = "Nessun gruppo di spesa.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    } else {
+                                        spendingGroups.forEach { group ->
+                                            Column(modifier = Modifier.fillMaxWidth()) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Group,
+                                                            contentDescription = null,
+                                                            tint = if (group.isDefault) SemanticGreen else MaterialTheme.colorScheme.primary,
+                                                            modifier = Modifier.size(24.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(8.dp))
+                                                        Column {
+                                                            Text(
+                                                                text = group.name,
+                                                                style = MaterialTheme.typography.bodyLarge,
+                                                                fontWeight = FontWeight.Bold
+                                                            )
+                                                            if (group.isDefault) {
+                                                                Text(
+                                                                    text = "Gruppo Principale",
+                                                                    style = MaterialTheme.typography.labelSmall,
+                                                                    color = SemanticGreen
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                    
+                                                    if (!group.isDefault) {
+                                                        TextButton(onClick = { /* TODO Set default API call */ }) {
+                                                            Text("RENDI PRINCIPALE", style = MaterialTheme.typography.labelSmall)
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                // Mostra i membri
+                                                if (group.members.isNotEmpty()) {
+                                                    Spacer(modifier = Modifier.height(8.dp))
+                                                    Text(
+                                                        "Membri:",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                    group.members.forEach { member ->
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.SpaceBetween
+                                                        ) {
+                                                            Text(
+                                                                text = "• ${member.fullName}",
+                                                                style = MaterialTheme.typography.bodyMedium
+                                                            )
+                                                            if (member.userId != userProfile?.id) {
+                                                                IconButton(onClick = { /* TODO remove member */ }, modifier = Modifier.size(20.dp)) {
+                                                                    Icon(imageVector = Icons.Default.Close, contentDescription = "Rimuovi", tint = SemanticRed)
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                // Add button (invita coinquilino via codice)
+                                                OutlinedButton(
+                                                    onClick = { /* TODO apri dialog add member */ },
+                                                    shape = RoundedCornerShape(12.dp)
+                                                ) {
+                                                    Icon(imageVector = Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text("AGGIUNGI COINQUILINO", style = MaterialTheme.typography.labelSmall)
+                                                }
+                                            }
+                                            
+                                            if (group != spendingGroups.last()) {
+                                                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                                            }
+                                        }
+                                    }
+                                    
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                                    
+                                    Button(
+                                        onClick = { /* TODO apri dialog nuovo gruppo */ },
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Icon(imageVector = Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("CREA NUOVO GRUPPO", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         }

@@ -10,8 +10,8 @@ data class LedgerEntry(
     val description: String,
     val amount: Double,
     val paidBy: String, // Legacy, can be used for descriptive naming
-    val paidByUserId: String = "", // Add paidByUserId
-    val groupId: String = "", // Add groupId
+    val paidByUserId: Int? = null,
+    val groupId: String? = null,
     val timestamp: Long = System.currentTimeMillis(),
     val isSettled: Boolean = false,
     val receiptItemsJson: String? = null,

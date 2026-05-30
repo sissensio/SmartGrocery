@@ -124,6 +124,26 @@ interface GroceryDao {
 
     @Query("SELECT EXISTS(SELECT 1 FROM app_notifications WHERE id = :id)")
     suspend fun hasNotification(id: Int): Boolean
+
+    // --- Spending Groups ---
+    @Query("SELECT * FROM spending_groups ORDER BY isDefault DESC, name ASC")
+    fun getSpendingGroupsFlow(): Flow<List<SpendingGroup>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSpendingGroups(groups: List<SpendingGroup>)
+
+    @Query("DELETE FROM spending_groups")
+    suspend fun deleteAllSpendingGroups()
+
+    // --- Shopping Lists ---
+    @Query("SELECT * FROM shopping_lists ORDER BY name ASC")
+    fun getShoppingListsFlow(): Flow<List<ShoppingList>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertShoppingLists(lists: List<ShoppingList>)
+
+    @Query("DELETE FROM shopping_lists")
+    suspend fun deleteAllShoppingLists()
 }
 
 @Database(

@@ -8,6 +8,7 @@ import java.util.UUID
 data class SpendingGroup(
     @PrimaryKey val id: String = UUID.randomUUID().toString(),
     val name: String,
-    val createdByUserId: String,
-    val isDefault: Boolean = false
+    val createdByUserId: Int,
+    val isDefault: Boolean = false,
+    val members: List<com.example.api.GroupMemberResponse> = emptyList()
 )

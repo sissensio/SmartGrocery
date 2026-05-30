@@ -59,4 +59,18 @@ class GroceryRepository(private val dao: GroceryDao) {
     suspend fun markNotificationAsRead(id: Int) = dao.markNotificationAsRead(id)
     suspend fun deleteNotification(id: Int) = dao.deleteNotification(id)
     suspend fun deleteAllNotifications() = dao.deleteAllNotifications()
+
+    // --- Spending Groups ---
+    val spendingGroups: Flow<List<SpendingGroup>> = dao.getSpendingGroupsFlow()
+    suspend fun insertSpendingGroups(groups: List<SpendingGroup>) {
+        dao.deleteAllSpendingGroups()
+        dao.insertSpendingGroups(groups)
+    }
+
+    // --- Shopping Lists ---
+    val shoppingLists: Flow<List<ShoppingList>> = dao.getShoppingListsFlow()
+    suspend fun insertShoppingLists(lists: List<ShoppingList>) {
+        dao.deleteAllShoppingLists()
+        dao.insertShoppingLists(lists)
+    }
 }
