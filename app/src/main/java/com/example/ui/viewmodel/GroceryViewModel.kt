@@ -209,41 +209,53 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
 
     fun refreshUserProfileAndGroups() {
         viewModelScope.launch {
-            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
+            val prefs = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE)
+            val token = prefs.getString("user_token", null)
             if (token.isNullOrBlank()) return@launch
-            val profile = com.example.api.LocalBackendServiceClient.getUserProfile(token)
-            if (profile != null) {
-                userProfile.value = profile
-            }
             
-            val groupsResponse = com.example.api.LocalBackendServiceClient.getSpendingGroups(token)
-            if (groupsResponse.isNotEmpty()) {
-                val mappedGroups = groupsResponse.map {
-                    SpendingGroup(
-                        id = it.id,
-                        name = it.name,
-                        createdByUserId = it.createdByUserId,
-                        isDefault = profile?.defaultGroupId == it.id,
-                        members = it.members
-                    )
+            try {
+                val profile = com.example.api.LocalBackendServiceClient.getUserProfile(token)
+                if (profile != null) {
+                    userProfile.value = profile
+                } else {
+                    // Could be network error or 401. Let's not forcefully logout the user on network error.
+                    // If it is indeed a 401, the user can manually logout from the settings.
+                    // We just log it for now.
+                    android.util.Log.w("GroceryViewModel", "getUserProfile returned null, backend offline or 401")
+                    return@launch
                 }
-                repository.insertSpendingGroups(mappedGroups)
-            }
-            
-            val listsResponse = com.example.api.LocalBackendServiceClient.getShoppingLists(token)
-            if (listsResponse.isNotEmpty()) {
-                val mappedLists = listsResponse.map {
-                    ShoppingList(
-                        id = it.id,
-                        name = it.name,
-                        createdByUserId = it.createdByUserId,
-                        isShared = it.isShared,
-                        items = it.items ?: emptyList(),
-                        sharedWithGroupIds = emptyList(), // Backend handles sharing access, but we could parse if returned
-                        sharedWithUserIds = emptyList()
-                    )
+                
+                val groupsResponse = com.example.api.LocalBackendServiceClient.getSpendingGroups(token)
+                if (groupsResponse.isNotEmpty()) {
+                    val mappedGroups = groupsResponse.map {
+                        com.example.data.SpendingGroup(
+                            id = it.id,
+                            name = it.name,
+                            createdByUserId = it.createdByUserId,
+                            isDefault = profile?.defaultGroupId == it.id,
+                            members = it.members
+                        )
+                    }
+                    repository.insertSpendingGroups(mappedGroups)
                 }
-                repository.insertShoppingLists(mappedLists)
+                
+                val listsResponse = com.example.api.LocalBackendServiceClient.getShoppingLists(token)
+                if (listsResponse.isNotEmpty()) {
+                    val mappedLists = listsResponse.map {
+                        com.example.data.ShoppingList(
+                            id = it.id,
+                            name = it.name,
+                            createdByUserId = it.createdByUserId,
+                            isShared = it.isShared,
+                            items = it.items ?: emptyList(),
+                            sharedWithGroupIds = emptyList(),
+                            sharedWithUserIds = emptyList()
+                        )
+                    }
+                    repository.insertShoppingLists(mappedLists)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("GroceryViewModel", "Error refreshing user profile and groups", e)
             }
         }
     }
