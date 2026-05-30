@@ -28,6 +28,11 @@ class MasterSyncWorker(
             val prefs = applicationContext.getSharedPreferences("smart_grocery_prefs", Context.MODE_PRIVATE)
             val token = prefs.getString("user_token", null)
             val deviceUuid = prefs.getString("device_uuid", "") ?: ""
+            
+            if (token.isNullOrBlank()) {
+                Log.d("MasterSyncWorker", "No auth token found, aborting sync")
+                return@withContext Result.success()
+            }
 
             // Build payload
             val ledgerRequests = unsyncedLedgers.map { entry ->

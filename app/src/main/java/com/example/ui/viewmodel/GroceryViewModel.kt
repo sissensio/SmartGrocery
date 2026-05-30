@@ -210,6 +210,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
     fun refreshUserProfileAndGroups() {
         viewModelScope.launch {
             val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
+            if (token.isNullOrBlank()) return@launch
             val profile = com.example.api.LocalBackendServiceClient.getUserProfile(token)
             if (profile != null) {
                 userProfile.value = profile
@@ -250,6 +251,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
     fun refreshActiveSessions() {
         viewModelScope.launch {
             val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
+            if (token.isNullOrBlank()) return@launch
             val sessions = com.example.api.LocalBackendServiceClient.getActiveShoppingSessions(token)
             activeShoppingSessions.value = sessions
         }
