@@ -63,6 +63,11 @@ fun GlobalSettingsDialog(
     var showUnsupportedAlert by remember { mutableStateOf(false) }
     var manualOcrText by remember { mutableStateOf("") }
     
+    var showCreateGroupDialog by remember { mutableStateOf(false) }
+    var showAddMemberDialogForGroup by remember { mutableStateOf<String?>(null) }
+    var newGroupNameInput by remember { mutableStateOf("") }
+    var profileCodeInput by remember { mutableStateOf("") }
+
     val context = androidx.compose.ui.platform.LocalContext.current
     val biometricState by viewModel.biometricSignatureState.collectAsState()
 
@@ -578,7 +583,7 @@ fun GlobalSettingsDialog(
                                                     }
                                                     
                                                     if (!group.isDefault) {
-                                                        TextButton(onClick = { /* TODO Set default API call */ }) {
+                                                        TextButton(onClick = { viewModel.setDefaultGroup(group.id) }) {
                                                             Text("RENDI PRINCIPALE", style = MaterialTheme.typography.labelSmall)
                                                         }
                                                     }
@@ -603,7 +608,7 @@ fun GlobalSettingsDialog(
                                                                 style = MaterialTheme.typography.bodyMedium
                                                             )
                                                             if (member.userId != userProfile?.id) {
-                                                                IconButton(onClick = { /* TODO remove member */ }, modifier = Modifier.size(20.dp)) {
+                                                                IconButton(onClick = { viewModel.removeMemberFromGroup(group.id, member.userId) }, modifier = Modifier.size(20.dp)) {
                                                                     Icon(imageVector = Icons.Default.Close, contentDescription = "Rimuovi", tint = SemanticRed)
                                                                 }
                                                             }
@@ -614,7 +619,7 @@ fun GlobalSettingsDialog(
                                                 Spacer(modifier = Modifier.height(8.dp))
                                                 // Add button (invita coinquilino via codice)
                                                 OutlinedButton(
-                                                    onClick = { /* TODO apri dialog add member */ },
+                                                    onClick = { showAddMemberDialogForGroup = group.id },
                                                     shape = RoundedCornerShape(12.dp)
                                                 ) {
                                                     Icon(imageVector = Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -632,7 +637,7 @@ fun GlobalSettingsDialog(
                                     HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                                     
                                     Button(
-                                        onClick = { /* TODO apri dialog nuovo gruppo */ },
+                                        onClick = { showCreateGroupDialog = true },
                                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                                         shape = RoundedCornerShape(12.dp),
                                         modifier = Modifier.fillMaxWidth()
@@ -1231,6 +1236,72 @@ fun GlobalSettingsDialog(
                 ) {
                     Text("Scarica / Condividi")
                 }
+            }
+        )
+    }
+
+    // CREATE GROUP DIALOG
+    if (showCreateGroupDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreateGroupDialog = false },
+            title = { Text("Crea Nuovo Gruppo", fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = newGroupNameInput,
+                    onValueChange = { newGroupNameInput = it },
+                    label = { Text("Nome Gruppo") },
+                    placeholder = { Text("es. Casa al Mare") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newGroupNameInput.isNotBlank()) {
+                            viewModel.createSpendingGroup(newGroupNameInput) {
+                                newGroupNameInput = ""
+                                showCreateGroupDialog = false
+                            }
+                        }
+                    }
+                ) { Text("Crea") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateGroupDialog = false }) { Text("Annulla") }
+            }
+        )
+    }
+
+    // ADD MEMBER DIALOG
+    showAddMemberDialogForGroup?.let { targetGroupId ->
+        AlertDialog(
+            onDismissRequest = { showAddMemberDialogForGroup = null },
+            title = { Text("Aggiungi Coinquilino", fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = profileCodeInput,
+                    onValueChange = { profileCodeInput = it },
+                    label = { Text("Codice Profilo Coinquilino") },
+                    placeholder = { Text("es. USERB-4C9E") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (profileCodeInput.isNotBlank()) {
+                            viewModel.addMemberToGroup(targetGroupId, profileCodeInput) {
+                                profileCodeInput = ""
+                                showAddMemberDialogForGroup = null
+                            }
+                        }
+                    }
+                ) { Text("Aggiungi") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddMemberDialogForGroup = null }) { Text("Annulla") }
             }
         )
     }

@@ -157,6 +157,56 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         activeSessionsJob?.cancel()
     }
 
+    fun createSpendingGroup(name: String, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
+            val newGroup = com.example.api.LocalBackendServiceClient.createSpendingGroup(token, name)
+            if (newGroup != null) {
+                val mapped = com.example.data.SpendingGroup(
+                    id = newGroup.id,
+                    name = newGroup.name,
+                    createdByUserId = newGroup.createdByUserId,
+                    isDefault = false,
+                    members = newGroup.members
+                )
+                repository.insertSpendingGroups(listOf(mapped))
+                refreshUserProfileAndGroups() // Forza il sync live
+                onSuccess()
+            }
+        }
+    }
+
+    fun addMemberToGroup(groupId: String, profileCode: String, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
+            val member = com.example.api.LocalBackendServiceClient.addMemberToGroup(token, groupId, profileCode)
+            if (member != null) {
+                refreshUserProfileAndGroups() // Rinfresca il database locale con il nuovo coinquilino
+                onSuccess()
+            }
+        }
+    }
+
+    fun removeMemberFromGroup(groupId: String, userId: Int) {
+        viewModelScope.launch {
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
+            val success = com.example.api.LocalBackendServiceClient.removeMemberFromGroup(token, groupId, userId)
+            if (success) {
+                refreshUserProfileAndGroups() // Rinfresca live
+            }
+        }
+    }
+
+    fun setDefaultGroup(groupId: String) {
+        viewModelScope.launch {
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
+            val success = com.example.api.LocalBackendServiceClient.setDefaultGroup(token, groupId)
+            if (success) {
+                refreshUserProfileAndGroups() // Aggiorna il badge "Gruppo Principale" in tempo reale
+            }
+        }
+    }
+
     fun refreshUserProfileAndGroups() {
         viewModelScope.launch {
             val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
