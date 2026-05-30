@@ -9,7 +9,9 @@ data class LedgerEntry(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val description: String,
     val amount: Double,
-    val paidBy: String, // "Io" or "Partner" (as designated in Section 7)
+    val paidBy: String, // Legacy, can be used for descriptive naming
+    val paidByUserId: String = "", // Add paidByUserId
+    val groupId: String = "", // Add groupId
     val timestamp: Long = System.currentTimeMillis(),
     val isSettled: Boolean = false,
     val receiptItemsJson: String? = null,

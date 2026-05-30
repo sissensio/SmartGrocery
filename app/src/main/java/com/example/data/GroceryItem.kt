@@ -12,6 +12,7 @@ data class GroceryItem(
     val unitPrice: Double = 0.0, // price per kg or liter
     val category: String = "Dispensa",
     val isShared: Boolean = true, // Smart-Split
+    val listId: String = "", // Added to link to a ShoppingList
     val isPurchased: Boolean = false,
     val urgencyColor: String = "GREEN", // RED, YELLOW, GREEN based on Daily Need
     val purchaseCount: Int = 1,
