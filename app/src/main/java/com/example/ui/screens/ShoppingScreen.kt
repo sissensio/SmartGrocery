@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.example.data.ShoppingList
 import com.example.data.GroceryItem
 import com.example.ui.theme.SemanticGreen
 import com.example.ui.theme.SemanticRed
@@ -37,6 +38,7 @@ fun ShoppingScreen(
     modifier: Modifier = Modifier
 ) {
     val items by viewModel.shoppingList.collectAsState()
+    val backendShoppingLists by viewModel.shoppingLists.collectAsState(initial = emptyList())
     val threshold by viewModel.indifferenceThreshold.collectAsState()
 
     var name by remember { mutableStateOf("") }
@@ -50,6 +52,10 @@ fun ShoppingScreen(
     // Dynamic cost opportunity simulation values
     var kmExtra by remember { mutableStateOf(4.5f) }
     var timeSaved by remember { mutableStateOf(20f) }
+    
+    var showShareSheet by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var listToShare by remember { mutableStateOf<ShoppingList?>(null) }
 
     LazyColumn(
         modifier = modifier
@@ -379,6 +385,81 @@ fun ShoppingScreen(
             }
         }
 
+        // --- BACKEND SHOPPING LISTS (Multi-liste) ---
+        if (backendShoppingLists.isNotEmpty()) {
+            item {
+                Text(
+                    text = "Liste Condivise (Backend)",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 16.dp)
+                )
+            }
+            
+            items(backendShoppingLists) { list ->
+                Card(
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column {
+                                Text(
+                                    text = list.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "Condiviso con ${list.sharedWithGroupIds.size + list.sharedWithUserIds.size} membri",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            IconButton(onClick = { 
+                                listToShare = list
+                                showShareSheet = true
+                             }) {
+                                Icon(Icons.Default.Share, contentDescription = "Condividi Lista", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        if (list.items.isEmpty()) {
+                            Text("Nessun articolo per ora.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                        } else {
+                            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                list.items.take(3).forEach { pItem ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text("• ${pItem.name}", style = MaterialTheme.typography.bodyMedium)
+                                        Text("${pItem.quantity}x", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                if (list.items.size > 3) {
+                                    Text(
+                                        text = "Vedi altri ${list.items.size - 3}...",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // --- END BACKEND SHOPPING LISTS ---
+
         // TEOREMA DEL COSTO OPPORTUNITA DECISION CARD (Section 8.2)
         item {
             Card(
@@ -530,6 +611,52 @@ fun ShoppingScreen(
 
         item {
             Box(modifier = Modifier.height(30.dp))
+        }
+    }
+
+    if (showShareSheet && listToShare != null) {
+        ModalBottomSheet(
+            onDismissRequest = { showShareSheet = false },
+            sheetState = sheetState
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp)
+            ) {
+                Text(
+                    text = "Condividi '${listToShare?.name}'",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Aggiungi amici o un intero Gruppo Spesa per collaborare in tempo reale (sincronizzazione ogni 20s).",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                // Placeholder inputs for inviting
+                OutlinedTextField(
+                    value = "",
+                    onValueChange = {},
+                    label = { Text("Profile Code Amico o ID Gruppo") },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Button(
+                    onClick = { showShareSheet = false },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp)
+                ) {
+                    Text("Invia Invito", modifier = Modifier.padding(vertical = 8.dp))
+                }
+                Spacer(modifier = Modifier.height(32.dp))
+            }
         }
     }
 }

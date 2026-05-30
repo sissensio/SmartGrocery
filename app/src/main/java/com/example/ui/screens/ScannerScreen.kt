@@ -796,48 +796,134 @@ fun ScannerScreen(
                 }
             }
 
-            // Who Paid selection & Final Ledger integration (Section 7.2)
+            // Who Paid selection & Final Ledger integration
             item {
                 Card(
                     shape = RoundedCornerShape(28.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(
-                                    text = "Resoconto Scontrino",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "Totale Estratto: €${String.format(Locale.US, "%.2f", scannedTotal)}",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
+                        Text(
+                            text = "Assegnazione Spesa",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        val spendingGroups by viewModel.spendingGroups.collectAsState()
+                        val userProfile = viewModel.userProfile.collectAsState().value
+                        
+                        var selectedGroupId by remember(spendingGroups, userProfile) { 
+                            mutableStateOf(userProfile?.defaultGroupId ?: spendingGroups.firstOrNull()?.id) 
+                        }
+                        var selectedPaidByUserId by remember(userProfile) { 
+                            mutableStateOf(userProfile?.id) 
+                        }
+                        
+                        var groupDropdownExpanded by remember { mutableStateOf(false) }
+                        var paidByDropdownExpanded by remember { mutableStateOf(false) }
+                        
+                        val selectedGroup = spendingGroups.find { it.id == selectedGroupId }
+                        val groupMembers = selectedGroup?.members ?: emptyList()
+                        
+                        // Group Selector
+                        Text("Destinazione (Gruppo)", style = MaterialTheme.typography.labelSmall)
+                        Box(modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 12.dp)) {
+                            OutlinedButton(
+                                onClick = { groupDropdownExpanded = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(selectedGroup?.name ?: "Spazio Personale (Privato)", color = MaterialTheme.colorScheme.onSurface)
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
+                                }
                             }
-                            
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Pagatore: ", style = MaterialTheme.typography.bodySmall)
-                                Text(
-                                    text = paidBy,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(MaterialTheme.colorScheme.primaryContainer)
-                                        .clickable { paidBy = if (paidBy == "Io") "Partner" else "Io" }
-                                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                                        .testTag("split_pagatore_selector")
+                            DropdownMenu(
+                                expanded = groupDropdownExpanded,
+                                onDismissRequest = { groupDropdownExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Spazio Personale (Privato)") },
+                                    onClick = {
+                                        selectedGroupId = null
+                                        selectedPaidByUserId = userProfile?.id
+                                        groupDropdownExpanded = false
+                                    }
                                 )
+                                spendingGroups.forEach { group ->
+                                    DropdownMenuItem(
+                                        text = { Text(group.name) },
+                                        onClick = {
+                                            selectedGroupId = group.id
+                                            // Reset paidBy to current user if they are in the new group, else first member
+                                            val member = group.members.find { it.userId == userProfile?.id } ?: group.members.firstOrNull()
+                                            selectedPaidByUserId = member?.userId
+                                            groupDropdownExpanded = false
+                                        }
+                                    )
+                                }
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                        // Paid By Selector
+                        if (selectedGroupId != null) {
+                            Text("Pagato da", style = MaterialTheme.typography.labelSmall)
+                            Box(modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 16.dp)) {
+                                OutlinedButton(
+                                    onClick = { paidByDropdownExpanded = true },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        val selectedMemberName = groupMembers.find { it.userId == selectedPaidByUserId }?.fullName ?: "Sconosciuto"
+                                        Text(selectedMemberName, color = MaterialTheme.colorScheme.onSurface)
+                                        Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface)
+                                    }
+                                }
+                                DropdownMenu(
+                                    expanded = paidByDropdownExpanded,
+                                    onDismissRequest = { paidByDropdownExpanded = false }
+                                ) {
+                                    groupMembers.forEach { member ->
+                                        DropdownMenuItem(
+                                            text = { Text(member.fullName ?: member.email) },
+                                            onClick = {
+                                                selectedPaidByUserId = member.userId
+                                                paidByDropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                             Text(
+                                "Totale Estratto:",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                "€${String.format(Locale.US, "%.2f", scannedTotal)}",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Black,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -854,7 +940,7 @@ fun ScannerScreen(
                             }
 
                             Button(
-                                onClick = { viewModel.confirmReceiptScanToDatabase(paidBy) },
+                                onClick = { viewModel.confirmReceiptScanToDatabase(selectedGroupId, selectedPaidByUserId) },
                                 shape = RoundedCornerShape(24.dp),
                                 modifier = Modifier
                                     .weight(1.3f)

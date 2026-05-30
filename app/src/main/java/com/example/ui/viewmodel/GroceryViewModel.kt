@@ -503,7 +503,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun confirmReceiptScanToDatabase(paidBy: String) {
+    fun confirmReceiptScanToDatabase(groupId: String?, paidByUserId: Int?) {
         viewModelScope.launch {
             val itemsToInsert = scannedReceiptItems.value
             val store = scannedStoreName.value
@@ -515,6 +515,9 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                     sharedTotal += pair.first.price
                 }
             }
+
+            // Retrieve user name if available for paidBy fallback string
+            val userProfileName = userProfile.value?.fullName ?: "Utente"
 
             // Check limits locally! (Offline-First constraint application)
             val prefs = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE)
@@ -603,11 +606,14 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                 val jsonReceipt = moshiInstance.adapter<List<ParsedItem>>(listTypeInstance).toJson(serializedList)
 
                 val clientUuid = java.util.UUID.randomUUID().toString()
+                
                 val debtEntry = LedgerEntry(
                     id = matchingId,
                     description = "Frazione Scontrino ${normalizeStoreName(store)}" + if (scannedVatNumber.value != null) " (PIVA ${scannedVatNumber.value})" else "",
                     amount = sharedTotal,
-                    paidBy = if (paidBy.lowercase() == "io") "Io" else "Partner",
+                    paidBy = userProfileName,
+                    paidByUserId = paidByUserId,
+                    groupId = groupId,
                     timestamp = entryTimestamp,
                     receiptItemsJson = jsonReceipt,
                     client_uuid = clientUuid,
@@ -631,7 +637,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             // Reset scanned fields
             cancelScannerPreview()
 
-            simulateWebSocketNotification("Nuovo scontrino registrato da $paidBy per ${normalizeStoreName(store)}. Totale comune: €${String.format(Locale.US, "%.2f", sharedTotal)}")
+            simulateWebSocketNotification("Nuovo scontrino registrato da $userProfileName per ${normalizeStoreName(store)}. Totale: €${String.format(Locale.US, "%.2f", sharedTotal)}")
         }
     }
 
@@ -2104,6 +2110,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
 
     fun deleteLedgerEntry(entry: LedgerEntry) {
         viewModelScope.launch {
+            // Delete locally first
             repository.deleteLedgerEntry(entry)
             val storeName = extractStoreNameFromDescription(entry.description)
             val normalizedStore = normalizeStoreName(storeName)
@@ -2114,7 +2121,18 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             if (storeName.isNotBlank()) {
                 recalculateStoreLastSeen(storeName)
             }
-            simulateWebSocketNotification("Scontrino rimosso dalla contabilità!")
+            
+            // Replicate deletion to backed explicitly for cascade effect
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
+            val success = com.example.api.LocalBackendServiceClient.deleteLedgerEntry(token, entry.id)
+            if (success) {
+                simulateWebSocketNotification("Scontrino rimosso dalla contabilità locale e remota!")
+            } else {
+                simulateWebSocketNotification("Scontrino rimosso in Locale. Sincronizzazione in corso.")
+            }
+            
+            // Note: API deletion cascades in the backend, removing ItemPriceHistory rows.
+            // When polling returns latest active sessions, it will reflect locally too if needed.
         }
     }
 
