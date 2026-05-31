@@ -767,6 +767,22 @@ fun SmartShoppingTab(viewModel: GroceryViewModel) {
     val comparison by viewModel.selectedComparison.collectAsState()
     var query by remember { mutableStateOf("") }
     
+    val allBoughtItems by viewModel.allItems.collectAsState()
+    val distinctItems = remember(allBoughtItems) {
+        allBoughtItems
+            .filter { it.isPurchased }
+            .groupBy { it.name.trim().lowercase() }
+            .map { entry -> entry.value.maxByOrNull { it.id }!! }
+            .sortedBy { it.name }
+    }
+    
+    val filteredLocalItems = remember(query, distinctItems) {
+        if (query.isBlank()) distinctItems
+        else distinctItems.filter { it.name.contains(query, ignoreCase = true) }
+    }
+
+    var editingItem by remember { mutableStateOf<com.example.data.GroceryItem?>(null) }
+    
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
@@ -782,7 +798,7 @@ fun SmartShoppingTab(viewModel: GroceryViewModel) {
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Text(
-                    text = "Cerca articoli per confrontarne i prezzi",
+                    text = "Cerca o confronta gli articoli acquistati",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.secondary
                 )
@@ -795,7 +811,7 @@ fun SmartShoppingTab(viewModel: GroceryViewModel) {
                 query = it
                 viewModel.searchCatalog(it)
             },
-            placeholder = { Text("Cerca prodotto (es. Salsa Mutti)...") },
+            placeholder = { Text("Cerca prodotto o filtra (es. Salsa Mutti)...") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             trailingIcon = {
                 if (query.isNotBlank()) {
@@ -813,29 +829,129 @@ fun SmartShoppingTab(viewModel: GroceryViewModel) {
         )
 
         LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(searchResults) { item ->
-                Card(
-                    modifier = Modifier.fillMaxWidth().clickable {
-                        viewModel.fetchComparison(item.barcode, item.name)
-                    },
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(item.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                            if (item.brand != null) {
-                                Text(item.brand, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+            
+            if (filteredLocalItems.isNotEmpty()) {
+                item {
+                    Text("I Miei Articoli (${filteredLocalItems.size})", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+                }
+                items(filteredLocalItems) { item ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            viewModel.fetchComparison(item.barcode.takeIf { it.isNotBlank() }, item.name)
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    ) {
+                        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(item.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                if (item.brand.isNotBlank()) {
+                                    Text(item.brand, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                                }
+                                Text("Ultimo prezzo: €${String.format(java.util.Locale.US, "%.2f", item.price)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
                             }
-                            if (item.barcode != null) {
-                                Text("Barcode: ${item.barcode}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                            IconButton(onClick = { editingItem = item }) {
+                                Icon(Icons.Default.Edit, contentDescription = "Modifica", tint = MaterialTheme.colorScheme.primary)
                             }
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         }
-                        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+
+            if (searchResults.isNotEmpty() && query.isNotBlank()) {
+                item {
+                    Text("Risultati dal Catalogo Globale", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 16.dp, bottom = 4.dp))
+                }
+                items(searchResults) { item ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            viewModel.fetchComparison(item.barcode, item.name)
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                    ) {
+                        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(item.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                if (item.brand != null) {
+                                    Text(item.brand, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+                                }
+                                if (item.barcode != null) {
+                                    Text("Barcode: ${item.barcode}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                                }
+                            }
+                            Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        }
                     }
                 }
             }
         }
+    }
+    
+    if (editingItem != null) {
+        var inputName by remember { mutableStateOf(editingItem!!.name) }
+        var inputBrand by remember { mutableStateOf(editingItem!!.brand) }
+        var inputPriceStr by remember { mutableStateOf(editingItem!!.price.toString()) }
+        var selectCategory by remember { mutableStateOf(editingItem!!.category) }
+
+        AlertDialog(
+            onDismissRequest = { editingItem = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Default.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Modifica Articolo", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = inputName,
+                        onValueChange = { inputName = it },
+                        label = { Text("Nome Prodotto") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = inputBrand,
+                        onValueChange = { inputBrand = it },
+                        label = { Text("Marca") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = inputPriceStr,
+                        onValueChange = { inputPriceStr = it },
+                        label = { Text("Prezzo") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = selectCategory,
+                        onValueChange = { selectCategory = it },
+                        label = { Text("Categoria") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val p = inputPriceStr.replace(",", ".").toDoubleOrNull() ?: editingItem!!.price
+                    viewModel.updateGroceryItem(editingItem!!.copy(
+                        name = inputName,
+                        brand = inputBrand,
+                        price = p,
+                        category = selectCategory
+                    ))
+                    editingItem = null
+                }) {
+                    Text("Salva")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingItem = null }) {
+                    Text("Annulla")
+                }
+            }
+        )
     }
 
     if (comparison != null) {

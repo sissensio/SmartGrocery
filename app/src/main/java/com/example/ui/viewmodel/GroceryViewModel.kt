@@ -556,6 +556,12 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun updateGroceryItem(item: GroceryItem) {
+        viewModelScope.launch {
+            repository.updateItem(item)
+        }
+    }
+
     // --- Smart Split Confirmation Flow (Section 6 & 7) ---
 
     fun toggleItemSplitShare(index: Int) {
