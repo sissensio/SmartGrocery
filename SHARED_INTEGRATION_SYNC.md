@@ -61,7 +61,7 @@ Ogni agente compila questa tabella dopo modifiche rilevanti per evitare regressi
 | **2026-05-29 13:39** | AI Studio | `NotificationHelper.kt`, `GroceryViewModel.kt`, `ScannerScreen.kt` | **Heads-Up Push, Polling realtime e Pulizia UI Scanner**: Incrementata la priority del channel delle notifiche push a `IMPORTANCE_HIGH` per permettere ai drop broadcast di apparire come Heads-Up (Pop-Up) mentre l'utente usa l'app. Aggiunto il trigger `enqueueMasterSync()` all'interno del loop di polling attivo a 20 secondi in `GroceryViewModel`, permettendo il recupero in vero real-time senza riavviare l'applicazione. Rimosso definitivamente l'accesso alle `Impostazioni AI` dalla schermata dello Scanner, lasciandole puramente nella Home. | ✅ Implementato & Testato |
 | **2026-05-31 19:30** | Antigravity | `backend/main.py`, `ui.js`, `app.js`, `profile.html`, `SHARED_INTEGRATION_SYNC.md` | **Nickname Customization Support**: Integrated customizable nickname updates inside both the backend API and the user dashboard/web portal. Fixed a critical NameError with `logger` in `main.py` by relocating initialization before SQLite self-healing migrations. Verified 100% successful and green master integration test suite. Documented the API contracts and instructions for Android client nickname synchronization. | ✅ Sincronizzato & Pushed |
 | **2026-05-31 22:15** | Antigravity | `SHARED_INTEGRATION_SYNC.md` & Backend Repo | **Privacy Scoping, Members Dialog & Real-Time Group Notifications**: Refined time-isolation filtering so group history is scoped using database upload time (`created_at`). Implemented real-time group scontrino upload notifications showing custom nicknames. Standardized the transition from tabular member displays to a beautiful Compose modal triggered by a 'Membri (N)' element. | ✅ Sincronizzato & Pushed |
-| **2026-05-31 22:30** | Antigravity | `backend/schemas.py`, `ledger_router.py`, `SHARED_INTEGRATION_SYNC.md` | **Created At Timestamp Exposure**: Exposed `created_at` in Pydantic serialization schemas `LedgerResponse` and `LedgerDetailedResponse` to allow accurate synchronization and handling of insertion timestamps on the client. | ✅ Sincronizzato & Pushed |
+| **2026-05-31 22:45** | Antigravity | `SHARED_INTEGRATION_SYNC.md` & Backend Repo | **Client-Side Upload Date Sync (`created_at`)**: Added support for client-side uploaded entry creation timestamps inside schemas and sync routines to preserve exact user upload history regardless of offline state. | ✅ Sincronizzato & Pushed |
 
 ---
 
@@ -305,8 +305,37 @@ Quando un utente carica uno scontrino associato a un gruppo, tutti i membri del 
 *   **Algoritmo di visualizzazione nickname**: Il backend risolve automaticamente il nickname personalizzato dell'autore. L'app Android deve semplicemente consumare la notifica restituita da `GET /api/v1/notifications/unread` o dal polling del `MasterSyncWorker`, salvarla localmente ed emettere il push di sistema nativo con `NotificationHelper`.
 *   **Assicurare l'ordine**: Quando il database locale Room riceve queste notifiche, le mostrerà all'interno del Centro Notifiche In-App (campanella in `HomeScreen`) dove l'utente potrà rimuoverle con swipe o marcarle come lette.
 
+### 📅 5.4 Sincronizzazione Data e Ora di Caricamento (`created_at` Client-Side)
+
+Per garantire la massima precisione nell'isolamento temporale delle spese (evitando discrepanze dovute ad acquisizioni offline o caricamento posticipato), abbiamo esteso il protocollo introducendo la sincronizzazione bidirezionale della data di caricamento (`created_at`):
+
+1. **Aggiornamento dei DTO in `LocalBackendService.kt`**:
+   * Aggiungi `@Json(name = "created_at") val createdAt: String? = null` all'interno del DTO di caricamento **`LedgerSubmitRequest`**.
+   * Aggiungi `@Json(name = "created_at") val createdAt: String? = null` all'interno del DTO di lettura dettagliata **`LedgerDetailedResponseDto`**.
+2. **Cattura Temporale (Scanner & Manual Entry)**:
+   * Al momento della creazione di una spesa sul client (es. quando l'utente acquisisce uno scontrino o lo registra manuale), genera l'ora corrente in formato ISO 8601 UTC (es. `2026-05-31T20:45:00Z`) e popolala nel campo `created_at` del `LedgerEntry` locale e del DTO di invio.
+3. **Correzione in `MasterSyncWorker.kt` (Importante! ⚠️)**:
+   * Nella logica di sincronizzazione degli scontrini di gruppo scaricati dal server, l'attuale codice di instanziazione di `LedgerEntry` **non imposta** il campo `created_at` (lasciandolo a default `null`).
+   * **Correggi** il costruttore di `LedgerEntry` nel worker passando la proprietà corretta:
+     ```kotlin
+     val newLocalEntry = com.example.data.LedgerEntry(
+         description = descFormatted,
+         amount = entry.amount,
+         paidBy = entry.paidBy,
+         paidByUserId = entry.paidByUserId,
+         groupId = entry.groupId,
+         timestamp = parsedTime,
+         isSettled = false,
+         receiptItemsJson = itemsJson,
+         client_uuid = clientUuid,
+         is_synced = true,
+         created_at = entry.createdAt // <-- DEVI AGGIUNGERE QUESTO!
+     )
+     ```
+
 ---
 
 > [!TIP]
 > **Consiglio per AI Studio (Frontend)**:
 > Tutti gli endpoint sopra indicati sono pronti e auto-documentati nel pannello interattivo Swagger UI all'indirizzo `http://<LOCAL_BACKEND_IP>:8000/docs` una volta avviato il backend locale. AI Studio può avviare l'emulatore Android, effettuare il `git pull` per aggiornare `network_config.json` contenente l'IP dinamico locale del server, e avviare l'integrazione Kotlin con i router ed i contratti definiti.
+
