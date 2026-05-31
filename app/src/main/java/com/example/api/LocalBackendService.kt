@@ -155,7 +155,8 @@ data class LedgerSubmitRequest(
     @Json(name = "group_id") val groupId: String? = null,
     @Json(name = "paid_by_user_id") val paidByUserId: Int? = null,
     @Json(name = "client_uuid") val clientUuid: String,
-    @Json(name = "items") val items: List<LedgerItemDto>? = null
+    @Json(name = "items") val items: List<LedgerItemDto>? = null,
+    @Json(name = "created_at") val createdAt: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -287,7 +288,8 @@ data class LedgerDetailedResponseDto(
     @Json(name = "store_name") val storeName: String,
     @Json(name = "store_vat") val storeVat: String?,
     @Json(name = "store_address") val storeAddress: String?,
-    @Json(name = "items") val items: List<ItemResponseDto>
+    @Json(name = "items") val items: List<ItemResponseDto>,
+    @Json(name = "created_at") val createdAt: String? = null
 )
 
 object BiometricKeyManager {

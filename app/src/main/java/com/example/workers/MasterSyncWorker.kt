@@ -63,7 +63,10 @@ class MasterSyncWorker(
                     paidBy = entry.paidBy,
                     isShared = true,
                     clientUuid = entry.client_uuid,
-                    items = dtoList
+                    items = dtoList,
+                    groupId = entry.groupId,
+                    paidByUserId = entry.paidByUserId,
+                    createdAt = entry.created_at
                 )
             }
             
@@ -195,7 +198,8 @@ class MasterSyncWorker(
                                     isSettled = false,
                                     receiptItemsJson = itemsJson,
                                     client_uuid = clientUuid,
-                                    is_synced = true
+                                    is_synced = true,
+                                    created_at = entry.createdAt
                                 )
                                 dao.insertLedgerEntry(newLocalEntry)
                                 

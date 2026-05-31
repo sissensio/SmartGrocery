@@ -16,6 +16,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -1564,7 +1566,7 @@ fun LocalAiSuccessDialog(viewModel: GroceryViewModel) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroupMembersModal(
-    group: com.example.api.SpendingGroupResponse,
+    group: com.example.data.SpendingGroup,
     onDismissRequest: () -> Unit
 ) {
     ModalBottomSheet(
@@ -1647,7 +1649,7 @@ fun GroupMembersModal(
                                     Text(
                                         text = "👑",
                                         style = MaterialTheme.typography.bodyMedium,
-                                        modifier = Modifier.semantics { androidx.compose.ui.semantics.contentDescription = "Creatore Gruppo" }
+                                        modifier = Modifier.semantics { contentDescription = "Creatore Gruppo" }
                                     )
                                 }
                             }
