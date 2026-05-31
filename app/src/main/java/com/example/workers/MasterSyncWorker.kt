@@ -54,7 +54,7 @@ class MasterSyncWorker(
                     ?: android.text.TextUtils.split(entry.description, "Acquisto rapido").lastOrNull()?.trim() 
                     ?: "Negozio Sconosciuto"
                 
-                val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(entry.timestamp))
+                val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).format(java.util.Date(entry.timestamp))
                 
                 LedgerSubmitRequest(
                     storeName = storeNameMatch,

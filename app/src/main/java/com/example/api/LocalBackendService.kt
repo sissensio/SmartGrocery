@@ -735,8 +735,8 @@ object LocalBackendServiceClient {
         if (!isHostConfigured()) return@withContext 250
         val url = "${getBaseUrl()}/api/v1/ledger"
         
-        // Converte il timestamp in formato yyyy-MM-dd
-        val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(timestamp))
+        // Converte il timestamp in formato completo
+        val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).format(java.util.Date(timestamp))
         
         val req = LedgerSubmitRequest(
             storeName = storeName,
@@ -772,7 +772,7 @@ object LocalBackendServiceClient {
         if (!isHostConfigured()) return@withContext 250
         val url = "${getBaseUrl()}/api/v1/ledger/$entryId"
         
-        val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(timestamp))
+        val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).format(java.util.Date(timestamp))
         
         val req = LedgerSubmitRequest(
             storeName = storeName,
