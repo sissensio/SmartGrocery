@@ -101,7 +101,8 @@ data class UserProfileResponse(
     @Json(name = "full_name") val fullName: String?,
     @Json(name = "profile_code") val profileCode: String?,
     @Json(name = "default_group_id") val defaultGroupId: String?,
-    @Json(name = "created_at") val createdAt: String?
+    @Json(name = "created_at") val createdAt: String?,
+    @Json(name = "nickname") val nickname: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -110,7 +111,8 @@ data class GroupMemberResponse(
     @Json(name = "full_name") val fullName: String?,
     @Json(name = "email") val email: String,
     @Json(name = "is_admin") val isAdmin: Boolean,
-    @Json(name = "joined_at") val joinedAt: String?
+    @Json(name = "joined_at") val joinedAt: String?,
+    @Json(name = "nickname") val nickname: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -257,6 +259,35 @@ data class SyncResponse(
     @Json(name = "synced_notification_acks") val syncedNotificationAcks: List<Int>,
     @Json(name = "new_notifications") val newNotifications: List<BackendNotification>,
     @Json(name = "device_status") val deviceStatus: DeviceStatusDto
+)
+
+@JsonClass(generateAdapter = true)
+data class ItemResponseDto(
+    @Json(name = "name") val name: String,
+    @Json(name = "brand") val brand: String? = "",
+    @Json(name = "category") val category: String,
+    @Json(name = "price") val price: Double,
+    @Json(name = "unitPrice") val unitPrice: Double? = 0.0,
+    @Json(name = "weight") val weight: Double? = null,
+    @Json(name = "barcode") val barcode: String? = ""
+)
+
+@JsonClass(generateAdapter = true)
+data class LedgerDetailedResponseDto(
+    @Json(name = "id") val id: Int,
+    @Json(name = "description") val description: String,
+    @Json(name = "amount") val amount: Double,
+    @Json(name = "category") val category: String?,
+    @Json(name = "timestamp") val timestamp: String,
+    @Json(name = "paid_by") val paidBy: String,
+    @Json(name = "is_shared") val isShared: Boolean,
+    @Json(name = "group_id") val groupId: String?,
+    @Json(name = "paid_by_user_id") val paidByUserId: Int?,
+    @Json(name = "client_uuid") val clientUuid: String?,
+    @Json(name = "store_name") val storeName: String,
+    @Json(name = "store_vat") val storeVat: String?,
+    @Json(name = "store_address") val storeAddress: String?,
+    @Json(name = "items") val items: List<ItemResponseDto>
 )
 
 object BiometricKeyManager {
@@ -967,6 +998,52 @@ object LocalBackendServiceClient {
         } catch (e: Exception) {
             lastApiError = e.localizedMessage
             return@withContext null
+        }
+    }
+
+    suspend fun updateNickname(token: String, nickname: String): UserProfileResponse? = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext null
+        val url = "${getBaseUrl()}/api/v1/auth/nickname"
+        val payload = "{\"nickname\":\"$nickname\"}"
+        val reqBuilder = Request.Builder().url(url)
+            .header("Authorization", "Bearer $token")
+            .put(payload.toRequestBody("application/json".toMediaType()))
+        val request = reqBuilder.build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext null
+                    return@withContext moshi.adapter(UserProfileResponse::class.java).fromJson(raw)
+                }
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            Log.e("LocalBackendService", "Errore aggiornamento nickname", e)
+            return@withContext null
+        }
+    }
+
+    suspend fun fetchGroupLedgerEntries(token: String?): List<LedgerDetailedResponseDto> = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext emptyList()
+        val url = "${getBaseUrl()}/api/v1/ledger"
+        
+        val reqBuilder = Request.Builder().url(url)
+        if (token != null) {
+            reqBuilder.header("Authorization", "Bearer $token")
+        }
+        val request = reqBuilder.get().build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext emptyList()
+                    val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, LedgerDetailedResponseDto::class.java)
+                    return@withContext moshi.adapter<List<LedgerDetailedResponseDto>>(type).fromJson(raw) ?: emptyList()
+                }
+                return@withContext emptyList()
+            }
+        } catch (e: Exception) {
+            Log.e("LocalBackendService", "Errore nel recupero degli scontrini di gruppo", e)
+            return@withContext emptyList()
         }
     }
 }
