@@ -377,6 +377,32 @@ fun GlobalSettingsDialog(
                                                 }
                                             }
                                         }
+
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        
+                                        var nicknameInput by remember(userProfile.nickname) { mutableStateOf(userProfile.nickname ?: "") }
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            OutlinedTextField(
+                                                value = nicknameInput,
+                                                onValueChange = { nicknameInput = it },
+                                                label = { Text("Nickname (mostrato nei gruppi)") },
+                                                modifier = Modifier.weight(1f),
+                                                singleLine = true,
+                                                shape = RoundedCornerShape(12.dp)
+                                            )
+                                            Button(
+                                                onClick = { viewModel.updateNickname(nicknameInput) },
+                                                enabled = nicknameInput.isNotBlank() && nicknameInput != userProfile.nickname,
+                                                shape = RoundedCornerShape(12.dp),
+                                                modifier = Modifier.height(56.dp)
+                                            ) {
+                                                Text("Salva")
+                                            }
+                                        }
                                     }
 
                                     HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
@@ -590,33 +616,39 @@ fun GlobalSettingsDialog(
                                                 }
                                                 
                                                 // Mostra i membri
+                                                var showMembersModal by remember { mutableStateOf(false) }
+
                                                 if (group.members.isNotEmpty()) {
                                                     Spacer(modifier = Modifier.height(8.dp))
-                                                    Text(
-                                                        "Membri:",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                    group.members.forEach { member ->
+                                                    Surface(
+                                                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                                                        shape = RoundedCornerShape(16.dp),
+                                                        modifier = Modifier.clickable { showMembersModal = true }
+                                                    ) {
                                                         Row(
-                                                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                                            verticalAlignment = Alignment.CenterVertically,
-                                                            horizontalArrangement = Arrangement.SpaceBetween
+                                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
                                                         ) {
+                                                            Icon(Icons.Default.Group, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                                                            Spacer(modifier = Modifier.width(6.dp))
                                                             Text(
-                                                                text = "• ${member.fullName}",
-                                                                style = MaterialTheme.typography.bodyMedium
+                                                                "Membri (${group.members.size})",
+                                                                style = MaterialTheme.typography.labelMedium,
+                                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                                fontWeight = FontWeight.SemiBold
                                                             )
-                                                            if (member.userId != userProfile?.id) {
-                                                                IconButton(onClick = { viewModel.removeMemberFromGroup(group.id, member.userId) }, modifier = Modifier.size(20.dp)) {
-                                                                    Icon(imageVector = Icons.Default.Close, contentDescription = "Rimuovi", tint = SemanticRed)
-                                                                }
-                                                            }
                                                         }
                                                     }
                                                 }
                                                 
-                                                Spacer(modifier = Modifier.height(8.dp))
+                                                if (showMembersModal) {
+                                                    GroupMembersModal(
+                                                        group = group,
+                                                        onDismissRequest = { showMembersModal = false }
+                                                    )
+                                                }
+                                                
+                                                Spacer(modifier = Modifier.height(12.dp))
                                                 // Add button (invita coinquilino via codice)
                                                 OutlinedButton(
                                                     onClick = { showAddMemberDialogForGroup = group.id },
@@ -1526,5 +1558,126 @@ fun LocalAiSuccessDialog(viewModel: GroceryViewModel) {
                 }
             }
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GroupMembersModal(
+    group: com.example.api.SpendingGroupResponse,
+    onDismissRequest: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismissRequest,
+        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), // Effetto vetro trasparente
+        tonalElevation = 8.dp,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+        ) {
+            Text(
+                text = "Membri di: ${group.name}",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            androidx.compose.foundation.lazy.LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(group.members.size) { index ->
+                    val member = group.members[index]
+                    // Il creatore del gruppo o l'admin ha lo scettro
+                    val isCreator = member.userId == group.createdByUserId || member.isAdmin
+                    
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Avatar Circolare Elegante
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(
+                                    color = if (isCreator) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
+                                    shape = CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val displayName = member.nickname ?: member.fullName ?: member.email
+                            Text(
+                                text = displayName.take(1).uppercase(),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = if (isCreator) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.width(16.dp))
+                        
+                        // Informazioni Utente
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // Risoluzione Nickname -> Full Name -> Email
+                                val displayName = when {
+                                    !member.nickname.isNullOrBlank() -> member.nickname
+                                    !member.fullName.isNullOrBlank() -> member.fullName
+                                    else -> member.email.substringBefore("@")
+                                }
+                                Text(
+                                    text = displayName!!,
+                                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
+                                )
+                                if (isCreator) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "👑",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.semantics { androidx.compose.ui.semantics.contentDescription = "Creatore Gruppo" }
+                                    )
+                                }
+                            }
+                            Text(
+                                text = member.email,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            )
+                            
+                            // Data di adesione
+                            member.joinedAt?.let { joinedAtIso ->
+                                val formattedDate = try {
+                                    val parser = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                                    val formatter = java.text.SimpleDateFormat("dd MMM yyyy HH:mm", java.util.Locale.getDefault())
+                                    formatter.format(parser.parse(joinedAtIso)!!)
+                                } catch (e: Exception) {
+                                    joinedAtIso
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Aggiunto il: $formattedDate",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+        }
     }
 }

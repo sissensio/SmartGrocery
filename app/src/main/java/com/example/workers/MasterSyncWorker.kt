@@ -139,6 +139,92 @@ class MasterSyncWorker(
                     }
                 }.apply()
                 
+                // --- NUOVA PARTE: Sincronizzazione scontrini di gruppo e anagrafica negozi ---
+                try {
+                    val groupEntries = com.example.api.LocalBackendServiceClient.fetchGroupLedgerEntries(token)
+                    if (groupEntries.isNotEmpty()) {
+                        val localLedgers = dao.getAllLedgerEntries()
+                        val moshi = com.squareup.moshi.Moshi.Builder().add(com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory()).build()
+                        val itemsType = com.squareup.moshi.Types.newParameterizedType(List::class.java, com.example.api.ParsedItem::class.java)
+                        val adapter = moshi.adapter<List<com.example.api.ParsedItem>>(itemsType)
+                        
+                        for (entry in groupEntries) {
+                            val clientUuid = entry.clientUuid ?: ""
+                            val alreadyExists = localLedgers.any { it.client_uuid == clientUuid }
+                            
+                            if (!alreadyExists && clientUuid.isNotEmpty()) {
+                                // 1. Converti gli articoli DTO nel formato locale ParsedItem atteso dalla UI
+                                val parsedItems = entry.items.map { dto ->
+                                    com.example.api.ParsedItem(
+                                        name = dto.name,
+                                        brand = dto.brand ?: "",
+                                        price = dto.price,
+                                        unitPrice = dto.unitPrice ?: 0.0,
+                                        category = dto.category,
+                                        isShared = true,
+                                        barcode = dto.barcode ?: "",
+                                        weight = dto.weight,
+                                        confidence = 1.0
+                                    )
+                                }
+                                val itemsJson = adapter.toJson(parsedItems)
+                                
+                                // 2. Calcola la descrizione formattata per essere letta nativamente da scanner e contabilità
+                                val descFormatted = if (!entry.storeVat.isNullOrBlank()) {
+                                    "Frazione Scontrino ${entry.storeName} (PIVA ${entry.storeVat})"
+                                } else {
+                                    "Acquisto rapido ${entry.storeName}"
+                                }
+                                
+                                // 3. Parsing del timestamp stringa del server (UTC ISO 8601) in millisecondi Unix Epoch
+                                val parsedTime = try {
+                                    java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).parse(entry.timestamp)?.time 
+                                        ?: System.currentTimeMillis()
+                                } catch (e: Exception) {
+                                    System.currentTimeMillis()
+                                }
+                                
+                                // 4. Salva lo scontrino nel database Room locale come già sincronizzato (is_synced = true)
+                                val newLocalEntry = com.example.data.LedgerEntry(
+                                    description = descFormatted,
+                                    amount = entry.amount,
+                                    paidBy = entry.paidBy,
+                                    paidByUserId = entry.paidByUserId,
+                                    groupId = entry.groupId,
+                                    timestamp = parsedTime,
+                                    isSettled = false,
+                                    receiptItemsJson = itemsJson,
+                                    client_uuid = clientUuid,
+                                    is_synced = true
+                                )
+                                dao.insertLedgerEntry(newLocalEntry)
+                                
+                                // 5. Registra ed associa il negozio locale per aggiornare la mappa geografica e geofence
+                                val existingStore = dao.getStoreByName(entry.storeName) ?: (if (!entry.storeVat.isNullOrBlank()) dao.getStoreByVat(entry.storeVat) else null)
+                                if (existingStore == null) {
+                                    val newStore = com.example.data.StoreInfo(
+                                        name = entry.storeName.lowercase().trim(),
+                                        displayName = entry.storeName,
+                                        vatNumber = entry.storeVat,
+                                        address = entry.storeAddress,
+                                        lastSeen = parsedTime
+                                    )
+                                    dao.insertStore(newStore)
+                                } else {
+                                    if (parsedTime > existingStore.lastSeen) {
+                                        dao.updateStore(existingStore.copy(
+                                            lastSeen = parsedTime,
+                                            address = entry.storeAddress ?: existingStore.address
+                                        ))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("MasterSyncWorker", "Errore nell'aggiornamento degli scontrini di gruppo scaricati", e)
+                }
+                
                 return@withContext Result.success()
             } else {
                 return@withContext Result.retry()

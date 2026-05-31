@@ -207,6 +207,19 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun updateNickname(nickname: String) {
+        viewModelScope.launch {
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
+            if (token != null) {
+                val updatedProfile = com.example.api.LocalBackendServiceClient.updateNickname(token, nickname)
+                if (updatedProfile != null) {
+                    userProfile.value = updatedProfile
+                    refreshUserProfileAndGroups()
+                }
+            }
+        }
+    }
+
     fun refreshUserProfileAndGroups() {
         viewModelScope.launch {
             val prefs = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE)

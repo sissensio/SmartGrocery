@@ -16,5 +16,6 @@ data class LedgerEntry(
     val isSettled: Boolean = false,
     val receiptItemsJson: String? = null,
     val client_uuid: String = UUID.randomUUID().toString(),
-    val is_synced: Boolean = false
+    val is_synced: Boolean = false,
+    val created_at: String? = null
 )
