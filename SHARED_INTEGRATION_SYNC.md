@@ -58,7 +58,8 @@ Ogni agente compila questa tabella dopo modifiche rilevanti per evitare regressi
 | **2026-05-29 09:37** | AI Studio | `MasterSyncWorker.kt`, `Database.kt` | **Fix Notifiche Duplicate in UI e Badge**: Individuato e risolto un critical bug nel `MasterSyncWorker` che causava la riemissione infinita della stessa notifica push di sistema per elementi non ancora "acknowledged" verso il server. Aggiunta una query `hasNotification(id)` al DAO presidiante per discriminare il mapping; le notifiche ed i push vengono mostrati/inseriti **solo** se totalmente assenti dal database locale. Questo ripristina la progressione corretta dell'intentamento del badge in-app e libera l'utente dallo spam di push ricorrenti. | ✅ Fix testato & Compilato |
 | **2026-05-29 13:21** | AI Studio | `MasterSyncWorker.kt`, `GroceryViewModel.kt` | **Fix Interruzione Polling e Coda Geofence**: Risolto un bug nel Worker in cui un early-return disabilitava lo scaricamento di messaggi broadcast dal server se in assenza di ack o ricevute pendenti locali. Rimossa anche la routine originaria di inizializzazione nel ViewModel che polverizzava erroneamente gli `Scontrini in sospeso` appena acquisiti da notifiche DOPO per i grandi ipermercati (Lidl/Esselunga). | ✅ Fix Applicato & Compilato |
 | **2026-05-29 13:30** | AI Studio | `HomeScreen.kt` | **Fix Overflow e UI Notifiche**: Rimosso il blocco duplicato delle notifiche all'interno della view principale, incapsulando l'esperienza unicamente nel `ModalBottomSheet`. Fixata l'estetica del badge usando formalmente `BadgedBox` attorno alla campanella. Incrementato drasticamente l'effetto dimming visivo delle notifiche lette (`alpha=0.5f`) per confermarne lo stato univocamente ad ogni interazione swipe. | ✅ Fix UI Applicato |
-| **2026-05-29 13:39** | AI Studio | `NotificationHelper.kt`, `GroceryViewModel.kt`, `ScannerScreen.kt` | **Heads-Up Push, Polling realtime e Pulizia UI Scanner**: Incrementata la priority del channel delle notifiche push a `IMPORTANCE_HIGH` per permettere ai drop broadcast di apparire come Heads-Up (Pop-Up) mentre l'utente usa l'app. Aggiunto il trigger `enqueueMasterSync()` all'interno del loop di polling attivo a 20 secondi in `GroceryViewModel`, permettendo il recupero in vero real-time senza riavviare l'applicazione. Rimosso definitivamente l'accesso alle `Impostazioni AI` dalla schermata dello Scanner, lasciandole puramente nella Home. | ✅ Implementato & Testato |
+| **2026-05-29 13:39** | AI Studio | `NotificationHelper.kt`, `GroceryViewModel.kt`, `ScannerScreen.kt` | **Heads-Up Push, Polling realtime e Pulizia UI Scanner**: Incrementata la priority del channel delle notifiche push a `IMPORTANCE_HIGH` per permettere ai drop broadcast di apparire come Heads-Up (Pop-Up) mentre l'utente usa l'app. Aggiunto il trigger `enqueueMasterSync()` all'interno del loop di polling attivo a 20 secondi in `GroceryViewModel`, permettendo il recupero in vero real-time senza riavviare l'applicazione. Rimosso definitivamente l'accesso alle `Impostazioni AI` dalla schermata dello Scann| **2026-05-31 19:30** | Antigravity | `backend/main.py`, `ui.js`, `app.js`, `profile.html`, `SHARED_INTEGRATION_SYNC.md` | **Nickname Customization Support**: Integrated customizable nickname updates inside both the backend API and the user dashboard/web portal. Fixed a critical NameError with `logger` in `main.py` by relocating initialization before SQLite self-healing migrations. Verified 100% successful and green master integration test suite. Documented the API contracts and instructions for Android client nickname synchronization. | ✅ Sincronizzato & Pushed |
+| **2026-05-31 22:15** | Antigravity | `SHARED_INTEGRATION_SYNC.md` & Backend Repo | **Privacy Scoping, Members Dialog & Real-Time Group Notifications**: Refined time-isolation filtering so group history is scoped using database upload time (`created_at`). Implemented real-time group scontrino upload notifications showing custom nicknames. Standardized the transition from tabular member displays to a beautiful Compose modal triggered by a 'Membri (N)' element. | ✅ Sincronizzato & Pushed |
 
 ---
 
@@ -122,6 +123,185 @@ Quando l'utente finalizza ed integra uno scontrino scansionato:
 * Chiamare `POST /api/v1/ledger` inviando l'anagrafica negozio e la lista articoli.
 * **Headers**: `Authorization: Bearer <token>` e `X-Device-ID: <device_uuid>`.
 * Il server verificherà lo stato del dispositivo ed applicherà eventuali limiti di transazione ad-hoc configurati dall'amministratore (restituendo un HTTP 403 in caso di superamento limiti), registrando asincronamente lo storico dei prezzi degli articoli per analizzare l'andamento del mercato e calcolare gli alert di sgrammatura (Shrinkflation).
+
+### 👤 4.4 Personalizzazione Nickname Utente (Profilo & Spese Coinquilini)
+Gli utenti possono personalizzare il proprio nickname visualizzato, che non è necessariamente univoco, per facilitare il riconoscimento nei gruppi di spesa.
+1. **Visualizzazione Profilo (`GET /api/v1/auth/me`)**:
+   * Ritorna l'oggetto `UserProfileResponse` che ora include il campo `"nickname"`.
+2. **Aggiornamento Nickname (`PUT /api/v1/auth/nickname`)**:
+   * **Endpoint**: `PUT /api/v1/auth/nickname` (Richiede Bearer Token JWT dell'utente).
+   * **Payload**:
+     ```json
+     {
+       "nickname": "NuovoNickname"
+     }
+     ```
+   * **Risposta**: L'oggetto `UserProfileResponse` aggiornato.
+3. **Flusso sul Client Android (AI Studio)**:
+   * **DTO Update**: Aggiornare l'entità/DTO `User` inserendo il campo `nickname: String?` (opzionale/nullable).
+   * **Settings UI**: Nella scheda Profilo (o Impostazioni) dell'app Android, permettere all'utente di modificare e salvare il proprio nickname invocando la chiamata API di tipo `PUT`.
+   * **Rendering**: Utilizzare il `nickname` se compilato, altrimenti fare fallback sul `full_name` per la visualizzazione dell'utente e dei coinquilini all'interno dei gruppi e dei dettagli spese.
+
+---
+
+## 👥 5. Nuova Gestione Privacy, Membri Gruppo e Nickname (Maggio/Giugno 2026)
+
+Abbiamo introdotto nuove importanti regole di business e architetturali nel backend per supportare la privacy del co-housing e un'esperienza di gruppo premium ed elegante.
+
+### 🛡️ 5.1 Regola di Isolamento Temporale per Coinquilini (`joined_at` vs `created_at`)
+
+Un utente che entra a far parte di un gruppo di spesa (sia per utenti normali che admin) deve poter visualizzare esclusivamente le spese, scontrini e supermercati associati a quel gruppo **a partire dal momento esatto in cui l'utente è stato aggiunto al gruppo (`joined_at`)**.
+Non deve in alcun modo poter consultare spese pregresse o supermercati collegati esclusivamente a spese effettuate prima del suo ingresso.
+
+#### Dettaglio Tecnico di Implementazione (Già implementato nel Backend!)
+* Per garantire la corretta visibilità anche in caso di scontrini con date passate ma inseriti oggi (es. scontrino di 3 giorni fa inserito 2 ore dopo che il nuovo membro si è unito al gruppo), il backend effettua il controllo sulla data di **inserimento nel sistema/database (`created_at`)** e non sulla data fisica della transazione (`timestamp`).
+* La query SQL nel backend filtra le entry con la formula logica:
+  `created_at >= joined_at` (utilizzando il timestamp della transazione `timestamp` come fallback se `created_at` non fosse popolato per record legacy).
+* **Impatto sul Frontend (AI Studio)**:
+  * Quando l'app esegue la sincronizzazione o richiede la lista dei supermercati e degli scontrini per un gruppo, il backend restituirà automaticamente solo le entità a cui l'utente ha diritto di accesso.
+  * Tuttavia, è fondamentale che i DTO e le entità Room locali vengano aggiornati per riflettere questo schema.
+  * In `LedgerEntry` (sia in locale che nei DTO di rete), assicurarsi di mappare il campo `created_at: String?` (formato ISO 8601 UTC) per tracciare con esattezza l'ora di inserimento sul server e ordinarli/visualizzarli correttamente nel registro spese.
+
+### 👑 5.2 Modal dei Membri del Gruppo con Effetto Glassmorphic (`#group-members-modal`)
+
+Per evitare di sovraccaricare la UI della lista dei gruppi di spesa con un elenco confusionario di membri direttamente in colonna, la tabella dei gruppi deve mostrare un unico elemento interattivo: un pulsante/chip elegante con etichetta **"Membri (N)"** (dove `N` è il numero corrente di partecipanti al gruppo).
+
+Al click sul chip, l'app Android deve aprire una modale overlay o `ModalBottomSheet` elegante con effetto **glassmorphism**, che elenca i membri del gruppo fornendo le seguenti informazioni:
+1.  **Nickname**: Visualizzato con massima prominenza. Se l'utente non ha impostato un nickname personalizzato, fare fallback sul `full_name` o in extremis sulla `email`.
+2.  **Indicatore Creator / Admin (`👑`)**: Un badge con corona dorata per il creatore/proprietario del gruppo (`member.userId == group.createdByUserId` oppure `member.isAdmin == true`).
+3.  **Email**: Mostrata sotto il nome con un colore secondario e font rimpicciolito.
+4.  **Data di Aggiunta al Gruppo**: La data e ora in cui l'utente è entrato nel gruppo (`joined_at`), formattata con pattern locale `dd/MM/yyyy HH:mm`.
+
+#### Guida e Esempio Jetpack Compose per AI Studio:
+Ecco il modello Compose consigliato per implementare la modale glassmorphic dei membri:
+
+```kotlin
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GroupMembersModal(
+    group: SpendingGroup,
+    onDismissRequest: () -> Unit
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismissRequest,
+        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), // Vetrificazione soft
+        tonalElevation = 8.dp,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 16.dp)
+        ) {
+            Text(
+                text = "Membri di: ${group.name}",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(group.members) { member ->
+                    val isCreator = member.userId == group.createdByUserId || member.isAdmin
+                    
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                                shape = RoundedCornerShape(16.dp)
+                            )
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Iniziale o Avatar
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .background(
+                                    color = if (isCreator) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
+                                    shape = CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val displayName = member.fullName ?: member.email
+                            Text(
+                                text = displayName.take(1).uppercase(),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = if (isCreator) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.width(16.dp))
+                        
+                        // Informazioni Utente
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                // Risoluzione Nickname -> Full Name -> Email
+                                val displayName = when {
+                                    !member.fullName.isNullOrBlank() -> member.fullName
+                                    else -> member.email.substringBefore("@")
+                                }
+                                Text(
+                                    text = displayName,
+                                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
+                                )
+                                if (isCreator) {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "👑",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.semantics { contentDescription = "Creatore Gruppo" }
+                                    )
+                                }
+                            }
+                            Text(
+                                text = member.email,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            )
+                            
+                            // Data di adesione
+                            member.joinedAt?.let { joinedAtIso ->
+                                val formattedDate = try {
+                                    val parser = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                                    val formatter = java.text.SimpleDateFormat("dd MMM yyyy HH:mm", java.util.Locale.getDefault())
+                                    formatter.format(parser.parse(joinedAtIso)!!)
+                                } catch (e: Exception) {
+                                    joinedAtIso
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Aggiunto il: $formattedDate",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+```
+
+### 🔔 5.3 Notifiche Real-Time di Gruppo con Nickname Risolto
+
+Quando un utente carica uno scontrino associato a un gruppo, tutti i membri del gruppo ricevono in tempo reale una notifica che descrive l'operazione:
+*   **Titolo**: `Nuova Spesa di Gruppo`
+*   **Corpo**: `L'utente <NICKNAME> ha caricato uno scontrino per <STORE_NAME> di <AMOUNT> €`
+*   **Algoritmo di visualizzazione nickname**: Il backend risolve automaticamente il nickname personalizzato dell'autore. L'app Android deve semplicemente consumare la notifica restituita da `GET /api/v1/notifications/unread` o dal polling del `MasterSyncWorker`, salvarla localmente ed emettere il push di sistema nativo con `NotificationHelper`.
+*   **Assicurare l'ordine**: Quando il database locale Room riceve queste notifiche, le mostrerà all'interno del Centro Notifiche In-App (campanella in `HomeScreen`) dove l'utente potrà rimuoverle con swipe o marcarle come lette.
 
 ---
 
