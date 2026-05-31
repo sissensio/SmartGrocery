@@ -615,6 +615,7 @@ fun ShoppingScreen(
     }
 
     if (showShareSheet && listToShare != null) {
+        var inviteInput by remember { mutableStateOf("") }
         ModalBottomSheet(
             onDismissRequest = { showShareSheet = false },
             sheetState = sheetState
@@ -638,18 +639,25 @@ fun ShoppingScreen(
                 
                 Spacer(modifier = Modifier.height(24.dp))
                 
-                // Placeholder inputs for inviting
                 OutlinedTextField(
-                    value = "",
-                    onValueChange = {},
+                    value = inviteInput,
+                    onValueChange = { inviteInput = it },
                     label = { Text("Profile Code Amico o ID Gruppo") },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    singleLine = true
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 Button(
-                    onClick = { showShareSheet = false },
+                    onClick = {
+                        if (inviteInput.isNotBlank()) {
+                            viewModel.shareShoppingList(listToShare!!.id, inviteInput) {
+                                showShareSheet = false
+                            }
+                        }
+                    },
+                    enabled = inviteInput.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(24.dp)
                 ) {

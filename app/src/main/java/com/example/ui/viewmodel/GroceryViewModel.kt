@@ -260,6 +260,29 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun shareShoppingList(listId: String, target: String, onSuccess: () -> Unit = {}) {
+        viewModelScope.launch {
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
+            if (token.isNullOrBlank()) return@launch
+            
+            val isUuid = try {
+                java.util.UUID.fromString(target.trim())
+                true
+            } catch (e: Exception) {
+                false
+            }
+            
+            val profileCode = if (!isUuid) target.trim() else null
+            val groupId = if (isUuid) target.trim() else null
+            
+            val success = com.example.api.LocalBackendServiceClient.shareShoppingList(token, listId, profileCode, groupId)
+            if (success) {
+                refreshUserProfileAndGroups() // Aggiorna le liste condivise in locale
+                onSuccess()
+            }
+        }
+    }
+
     fun refreshActiveSessions() {
         viewModelScope.launch {
             val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
