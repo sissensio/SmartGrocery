@@ -700,7 +700,8 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                     timestamp = entryTimestamp,
                     receiptItemsJson = jsonReceipt,
                     client_uuid = clientUuid,
-                    is_synced = false
+                    is_synced = false,
+                    created_at = getCurrentUtcIsoString()
                 )
                 repository.insertLedgerEntry(debtEntry)
                 
@@ -2072,6 +2073,12 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    private fun getCurrentUtcIsoString(): String {
+        val df = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US)
+        df.timeZone = java.util.TimeZone.getTimeZone("UTC")
+        return df.format(java.util.Date())
+    }
+
     // --- Micro Retailer No-Scan Rapid entry (Section 8) ---
     fun addMicroRetailerSpesa(storeName: String, amount: Double, paidBy: String) {
         viewModelScope.launch {
@@ -2094,12 +2101,16 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             }
 
             val clientUuid = java.util.UUID.randomUUID().toString()
+            val currentProfile = userProfile.value
             val entry = LedgerEntry(
                 description = "Acquisto rapido $normalizedName",
                 amount = amount,
                 paidBy = if (paidBy.lowercase() == "io") "Io" else "Partner",
+                paidByUserId = if (paidBy.lowercase() == "io") currentProfile?.id else null,
+                groupId = currentProfile?.defaultGroupId,
                 client_uuid = clientUuid,
-                is_synced = false
+                is_synced = false,
+                created_at = getCurrentUtcIsoString()
             )
             repository.insertLedgerEntry(entry)
             recordStoreTransaction(storeName, null, null, null, entry.timestamp)
