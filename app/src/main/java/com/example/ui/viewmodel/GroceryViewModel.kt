@@ -2410,12 +2410,37 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
     fun deleteBackendNotification(notificationId: Int) {
         viewModelScope.launch {
             repository.deleteNotification(notificationId)
+            val ack = com.example.data.NotificationAck(
+                notificationId = notificationId,
+                deviceUuid = deviceUuid.value,
+                isSynced = false
+            )
+            repository.insertNotificationAck(ack)
+            try {
+                enqueueMasterSync()
+            } catch (e: Exception) {
+                Log.e(TAG, "Errore enqueue WorkManager", e)
+            }
         }
     }
 
     fun deleteAllBackendNotifications() {
         viewModelScope.launch {
+            val list = allBackendNotifications.value
             repository.deleteAllNotifications()
+            for (notif in list) {
+                val ack = com.example.data.NotificationAck(
+                    notificationId = notif.id,
+                    deviceUuid = deviceUuid.value,
+                    isSynced = false
+                )
+                repository.insertNotificationAck(ack)
+            }
+            try {
+                enqueueMasterSync()
+            } catch (e: Exception) {
+                Log.e(TAG, "Errore enqueue WorkManager", e)
+            }
         }
     }
 }
