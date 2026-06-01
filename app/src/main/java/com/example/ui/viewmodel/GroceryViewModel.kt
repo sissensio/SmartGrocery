@@ -2409,13 +2409,18 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
 
     fun deleteBackendNotification(notificationId: Int) {
         viewModelScope.launch {
+            // Rimuove localmente
             repository.deleteNotification(notificationId)
+            
+            // Registra la ricevuta di cancellazione offline (ACK)
             val ack = com.example.data.NotificationAck(
                 notificationId = notificationId,
                 deviceUuid = deviceUuid.value,
                 isSynced = false
             )
             repository.insertNotificationAck(ack)
+            
+            // Forza la sincronizzazione immediata al server in background
             try {
                 enqueueMasterSync()
             } catch (e: Exception) {
@@ -2428,6 +2433,8 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             val list = allBackendNotifications.value
             repository.deleteAllNotifications()
+            
+            // Popola gli ACK offline per ogni notifica rimossa cumulativamente
             for (notif in list) {
                 val ack = com.example.data.NotificationAck(
                     notificationId = notif.id,
@@ -2436,6 +2443,8 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                 )
                 repository.insertNotificationAck(ack)
             }
+            
+            // Avvia la transazione USP batch
             try {
                 enqueueMasterSync()
             } catch (e: Exception) {
