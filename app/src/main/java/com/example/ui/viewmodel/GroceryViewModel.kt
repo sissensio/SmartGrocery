@@ -98,6 +98,8 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                     geofenceManager.updateGeofences(stores)
                 } catch (e: SecurityException) {
                     Log.e(TAG, "Missing location permissions to configure geofences")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed updating geofences in background initialization", e)
                 }
             }
         }

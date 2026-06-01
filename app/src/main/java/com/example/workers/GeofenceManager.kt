@@ -11,7 +11,14 @@ import com.google.android.gms.location.GeofencingRequest
 import com.google.android.gms.location.LocationServices
 
 class GeofenceManager(private val context: Context) {
-    private val geofencingClient = LocationServices.getGeofencingClient(context)
+    private val geofencingClient by lazy {
+        try {
+            LocationServices.getGeofencingClient(context)
+        } catch (e: Throwable) {
+            android.util.Log.e("GeofenceManager", "Failed to get GeofencingClient", e)
+            null
+        }
+    }
 
     private val geofencePendingIntent: PendingIntent by lazy {
         val intent = Intent(context, GeofenceBroadcastReceiver::class.java)
@@ -22,6 +29,8 @@ class GeofenceManager(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     fun updateGeofences(stores: List<StoreInfo>) {
+        val client = geofencingClient ?: return
+        
         val geofences = stores.filter { it.latitude != null && it.longitude != null }.map { store ->
             Geofence.Builder()
                 .setRequestId(store.name)
@@ -35,17 +44,21 @@ class GeofenceManager(private val context: Context) {
                 .build()
         }
 
-        if (geofences.isEmpty()) {
-            geofencingClient.removeGeofences(geofencePendingIntent)
-            return
-        }
+        try {
+            if (geofences.isEmpty()) {
+                client.removeGeofences(geofencePendingIntent)
+                return
+            }
 
-        val geofencingRequest = GeofencingRequest.Builder()
-            .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_EXIT)
-            .addGeofences(geofences)
-            .build()
-            
-        // We always try to add, which will update existing ones with same RequestId.
-        geofencingClient.addGeofences(geofencingRequest, geofencePendingIntent)
+            val geofencingRequest = GeofencingRequest.Builder()
+                .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_EXIT)
+                .addGeofences(geofences)
+                .build()
+                
+            // We always try to add, which will update existing ones with same RequestId.
+            client.addGeofences(geofencingRequest, geofencePendingIntent)
+        } catch (e: Throwable) {
+            android.util.Log.e("GeofenceManager", "Error updating geofences", e)
+        }
     }
 }
