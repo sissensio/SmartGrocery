@@ -270,7 +270,32 @@ data class ItemResponseDto(
     @Json(name = "price") val price: Double,
     @Json(name = "unitPrice") val unitPrice: Double? = 0.0,
     @Json(name = "weight") val weight: Double? = null,
-    @Json(name = "barcode") val barcode: String? = ""
+    @Json(name = "barcode") val barcode: String? = "",
+    @Json(name = "nutriscore") val nutriscore: String? = null,
+    @Json(name = "allergens") val allergens: String? = null,
+    @Json(name = "calories") val calories: Double? = null,
+    @Json(name = "proteins") val proteins: Double? = null,
+    @Json(name = "carbs") val carbs: Double? = null,
+    @Json(name = "fat") val fat: Double? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ClosestStoreRequest(
+    @Json(name = "latitude") val latitude: Double,
+    @Json(name = "longitude") val longitude: Double
+)
+
+@JsonClass(generateAdapter = true)
+data class ClosestStoreResponse(
+    @Json(name = "id") val id: Int? = null,
+    @Json(name = "name") val name: String,
+    @Json(name = "display_name") val displayName: String,
+    @Json(name = "vat_number") val vatNumber: String? = null,
+    @Json(name = "address") val address: String? = null,
+    @Json(name = "phone") val phone: String? = null,
+    @Json(name = "latitude") val latitude: Double? = null,
+    @Json(name = "longitude") val longitude: Double? = null,
+    @Json(name = "geofence_radius") val geofenceRadius: Float = 100f
 )
 
 @JsonClass(generateAdapter = true)
@@ -1045,6 +1070,55 @@ object LocalBackendServiceClient {
             }
         } catch (e: Exception) {
             Log.e("LocalBackendService", "Errore nel recupero degli scontrini di gruppo", e)
+            return@withContext emptyList()
+        }
+    }
+
+    suspend fun getClosestStore(token: String?, latitude: Double, longitude: Double): ClosestStoreResponse? = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext null
+        val url = "${getBaseUrl()}/api/v1/scan/stores/closest"
+        val adapter = moshi.adapter(ClosestStoreRequest::class.java)
+        val payload = adapter.toJson(ClosestStoreRequest(latitude, longitude))
+        val reqBuilder = Request.Builder().url(url)
+        if (token != null) {
+            reqBuilder.header("Authorization", "Bearer $token")
+        }
+        val request = reqBuilder.post(payload.toRequestBody("application/json".toMediaType())).build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext null
+                    return@withContext moshi.adapter(ClosestStoreResponse::class.java).fromJson(raw)
+                }
+                Log.e("LocalBackendService", "getClosestStore returned HTTP ${response.code}")
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            Log.e("LocalBackendService", "Errore in getClosestStore", e)
+            return@withContext null
+        }
+    }
+
+    suspend fun syncStoresFromServer(token: String?): List<ClosestStoreResponse> = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext emptyList()
+        val url = "${getBaseUrl()}/api/v1/sync/stores"
+        val reqBuilder = Request.Builder().url(url)
+        if (token != null) {
+            reqBuilder.header("Authorization", "Bearer $token")
+        }
+        val request = reqBuilder.get().build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext emptyList()
+                    val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, ClosestStoreResponse::class.java)
+                    return@withContext moshi.adapter<List<ClosestStoreResponse>>(type).fromJson(raw) ?: emptyList()
+                }
+                Log.e("LocalBackendService", "syncStoresFromServer returned HTTP ${response.code}")
+                return@withContext emptyList()
+            }
+        } catch (e: Exception) {
+            Log.e("LocalBackendService", "Errore in syncStoresFromServer", e)
             return@withContext emptyList()
         }
     }

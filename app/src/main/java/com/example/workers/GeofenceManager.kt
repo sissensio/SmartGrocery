@@ -31,7 +31,12 @@ class GeofenceManager(private val context: Context) {
     fun updateGeofences(stores: List<StoreInfo>) {
         val client = geofencingClient ?: return
         
-        val geofences = stores.filter { it.latitude != null && it.longitude != null }.map { store ->
+        // Prioritize and cap matching geofences to maximum of 90 (Android official maximum client-side limit)
+        val limitedStores = stores.filter { it.latitude != null && it.longitude != null }
+            .sortedByDescending { it.lastSeen }
+            .take(90)
+
+        val geofences = limitedStores.map { store ->
             Geofence.Builder()
                 .setRequestId(store.name)
                 .setCircularRegion(

@@ -60,7 +60,13 @@ data class ParsedItem(
     @Json(name = "barcode") val barcode: String = "",
     @Json(name = "weight") val weight: Double? = null,
     @Json(name = "pricePerKg") val pricePerKg: Double? = null,
-    @Json(name = "confidence") val confidence: Double = 0.95
+    @Json(name = "confidence") val confidence: Double = 0.95,
+    @Json(name = "nutriscore") val nutriscore: String? = null,
+    @Json(name = "allergens") val allergens: String? = null,
+    @Json(name = "calories") val calories: Double? = null,
+    @Json(name = "proteins") val proteins: Double? = null,
+    @Json(name = "carbs") val carbs: Double? = null,
+    @Json(name = "fat") val fat: Double? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -87,7 +93,13 @@ data class ParsedItemJson(
     @Json(name = "barcode") val barcode: String? = null,
     @Json(name = "weight") val weight: Double? = null,
     @Json(name = "pricePerKg") val pricePerKg: Double? = null,
-    @Json(name = "confidence") val confidence: Double? = null
+    @Json(name = "confidence") val confidence: Double? = null,
+    @Json(name = "nutriscore") val nutriscore: String? = null,
+    @Json(name = "allergens") val allergens: String? = null,
+    @Json(name = "calories") val calories: Double? = null,
+    @Json(name = "proteins") val proteins: Double? = null,
+    @Json(name = "carbs") val carbs: Double? = null,
+    @Json(name = "fat") val fat: Double? = null
 ) {
     fun toParsedItem() = ParsedItem(
         name = name ?: "Articolo",
@@ -99,7 +111,13 @@ data class ParsedItemJson(
         barcode = barcode ?: "",
         weight = weight,
         pricePerKg = pricePerKg,
-        confidence = confidence ?: 0.95
+        confidence = confidence ?: 0.95,
+        nutriscore = nutriscore,
+        allergens = allergens,
+        calories = calories,
+        proteins = proteins,
+        carbs = carbs,
+        fat = fat
     )
 }
 

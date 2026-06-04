@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.data.ShoppingList
 import com.example.data.GroceryItem
 import com.example.ui.theme.SemanticGreen
@@ -347,6 +348,69 @@ fun ShoppingScreen(
                                         color = SemanticRed
                                     )
                                 }
+                                if (item.nutriscore != null || item.allergens != null || item.calories != null) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 2.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            if (item.nutriscore != null) {
+                                                val scoreStr = item.nutriscore.uppercase()
+                                                val scoreBg = when(scoreStr) {
+                                                    "A", "B" -> SemanticGreen
+                                                    "C" -> SemanticYellow
+                                                    "D", "E" -> SemanticRed
+                                                    else -> MaterialTheme.colorScheme.outline
+                                                }
+                                                Surface(
+                                                    color = scoreBg,
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    modifier = Modifier.padding(end = 6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "NUTRI-SCORE $scoreStr",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.White,
+                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            if (item.calories != null) {
+                                                Text(
+                                                    text = "${item.calories.toInt()} kcal" +
+                                                           (if (item.proteins != null) " • P: ${String.format(Locale.US, "%.1f", item.proteins)}g" else "") +
+                                                           (if (item.carbs != null) " • C: ${String.format(Locale.US, "%.1f", item.carbs)}g" else "") +
+                                                           (if (item.fat != null) " • F: ${String.format(Locale.US, "%.1f", item.fat)}g" else ""),
+                                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                        
+                                        if (!item.allergens.isNullOrBlank()) {
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Warning,
+                                                    contentDescription = "Allergeni",
+                                                    tint = SemanticRed,
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                     text = "Allergeni: ${item.allergens}",
+                                                     style = MaterialTheme.typography.labelSmall,
+                                                     color = SemanticRed,
+                                                     fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
 
@@ -615,7 +679,6 @@ fun ShoppingScreen(
     }
 
     if (showShareSheet && listToShare != null) {
-        var inviteInput by remember { mutableStateOf("") }
         ModalBottomSheet(
             onDismissRequest = { showShareSheet = false },
             sheetState = sheetState
@@ -639,25 +702,18 @@ fun ShoppingScreen(
                 
                 Spacer(modifier = Modifier.height(24.dp))
                 
+                // Placeholder inputs for inviting
                 OutlinedTextField(
-                    value = inviteInput,
-                    onValueChange = { inviteInput = it },
+                    value = "",
+                    onValueChange = {},
                     label = { Text("Profile Code Amico o ID Gruppo") },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    singleLine = true
+                    shape = RoundedCornerShape(12.dp)
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 
                 Button(
-                    onClick = {
-                        if (inviteInput.isNotBlank()) {
-                            viewModel.shareShoppingList(listToShare!!.id, inviteInput) {
-                                showShareSheet = false
-                            }
-                        }
-                    },
-                    enabled = inviteInput.isNotBlank(),
+                    onClick = { showShareSheet = false },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(24.dp)
                 ) {

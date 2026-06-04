@@ -657,6 +657,70 @@ fun ScannerScreen(
                                     )
                                 }
 
+                                if (pItem.nutriscore != null || pItem.allergens != null || pItem.calories != null) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp, horizontal = 0.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            if (pItem.nutriscore != null) {
+                                                val scoreStr = pItem.nutriscore.uppercase()
+                                                val scoreBg = when(scoreStr) {
+                                                    "A", "B" -> SemanticGreen
+                                                    "C" -> SemanticYellow
+                                                    "D", "E" -> SemanticRed
+                                                    else -> MaterialTheme.colorScheme.outline
+                                                }
+                                                Surface(
+                                                    color = scoreBg,
+                                                    shape = RoundedCornerShape(4.dp),
+                                                    modifier = Modifier.padding(end = 6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "NUTRI-SCORE $scoreStr",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color.White,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            if (pItem.calories != null) {
+                                                Text(
+                                                    text = "${pItem.calories.toInt()} kcal" +
+                                                           (if (pItem.proteins != null) " • P: ${String.format(Locale.US, "%.1f", pItem.proteins)}g" else "") +
+                                                           (if (pItem.carbs != null) " • C: ${String.format(Locale.US, "%.1f", pItem.carbs)}g" else "") +
+                                                           (if (pItem.fat != null) " • F: ${String.format(Locale.US, "%.1f", pItem.fat)}g" else ""),
+                                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                        
+                                        if (!pItem.allergens.isNullOrBlank()) {
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Warning,
+                                                    contentDescription = "Allergeni",
+                                                    tint = SemanticRed,
+                                                    modifier = Modifier.size(12.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                     text = "Allergeni: ${pItem.allergens}",
+                                                     style = MaterialTheme.typography.labelSmall,
+                                                     color = SemanticRed,
+                                                     fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
                                 if (pItem.barcode.isNotBlank()) {
                                     var shrinkflationAlert by remember(pItem.barcode) { mutableStateOf<com.example.api.ShrinkflationAlertResponse?>(null) }
                                     val context = androidx.compose.ui.platform.LocalContext.current

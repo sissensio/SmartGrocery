@@ -13,6 +13,8 @@ import com.example.data.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import java.util.Locale
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
@@ -275,29 +277,6 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun shareShoppingList(listId: String, target: String, onSuccess: () -> Unit = {}) {
-        viewModelScope.launch {
-            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
-            if (token.isNullOrBlank()) return@launch
-            
-            val isUuid = try {
-                java.util.UUID.fromString(target.trim())
-                true
-            } catch (e: Exception) {
-                false
-            }
-            
-            val profileCode = if (!isUuid) target.trim() else null
-            val groupId = if (isUuid) target.trim() else null
-            
-            val success = com.example.api.LocalBackendServiceClient.shareShoppingList(token, listId, profileCode, groupId)
-            if (success) {
-                refreshUserProfileAndGroups() // Aggiorna le liste condivise in locale
-                onSuccess()
-            }
-        }
-    }
-
     fun refreshActiveSessions() {
         viewModelScope.launch {
             val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
@@ -392,6 +371,8 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
 
     // Smart Split current scan targets
     val scannedReceiptItems = MutableStateFlow<List<Pair<ParsedItem, Boolean>>>(emptyList()) // Pair of item and isShared boolean
+    val scannedReceiptLatitude = MutableStateFlow<Double?>(null)
+    val scannedReceiptLongitude = MutableStateFlow<Double?>(null)
     val scannedStoreName = MutableStateFlow("Supermercato")
     val scannedVatNumber = MutableStateFlow<String?>(null)
     val scannedAddress = MutableStateFlow<String?>(null)
@@ -646,7 +627,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             // Verify with FastAPI backend for transaction device limits (HTTP 403 check)
             // L'inserimento ora avviene in modalità offline-first, il check dei limiti 403 lo gestiremo post-sync
             // Record store metadata and normalize it in database
-            recordStoreTransaction(store, scannedVatNumber.value, scannedAddress.value, scannedPhone.value, entryTimestamp)
+            recordStoreTransaction(store, scannedVatNumber.value, scannedAddress.value, scannedPhone.value, entryTimestamp, scannedReceiptLatitude.value, scannedReceiptLongitude.value)
 
             val matchingId = reconciledLedgerEntryId.value ?: 0
             var alreadyHadItems = false
@@ -696,7 +677,13 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                         isPurchased = true, // already bought in scontrino
                         lastPurchaseTimestamp = entryTimestamp,
                         storeName = normalizeStoreName(store),
-                        barcode = pItem.barcode
+                        barcode = pItem.barcode,
+                        nutriscore = pItem.nutriscore,
+                        allergens = pItem.allergens,
+                        calories = pItem.calories,
+                        proteins = pItem.proteins,
+                        carbs = pItem.carbs,
+                        fat = pItem.fat
                     )
                     repository.insertItem(gItem)
                 }
@@ -767,7 +754,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun recordStoreTransaction(rawStoreName: String, vatNumber: String?, address: String?, phone: String?, timestamp: Long? = null) {
+    fun recordStoreTransaction(rawStoreName: String, vatNumber: String?, address: String?, phone: String?, timestamp: Long? = null, latitude: Double? = null, longitude: Double? = null) {
         viewModelScope.launch {
             val normalizedName = normalizeStoreName(rawStoreName)
             val cleanVat = vatNumber?.trim()?.takeIf { it.isNotBlank() }
@@ -789,10 +776,12 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                     vatNumber = cleanVat ?: existingStore.vatNumber,
                     address = cleanAddress ?: existingStore.address,
                     phone = cleanPhone ?: existingStore.phone,
+                    latitude = latitude ?: existingStore.latitude,
+                    longitude = longitude ?: existingStore.longitude,
                     lastSeen = if (existingStore.lastSeen > 0L) Math.max(existingStore.lastSeen, txTimestamp) else txTimestamp
                 )
                 repository.updateStore(updatedStore)
-                Log.d("StoreRegistry", "Updated store: $normalizedName")
+                Log.d("StoreRegistry", "Updated store: $normalizedName with GPS: $latitude, $longitude")
             } else {
                 val newStore = StoreInfo(
                     name = normalizedName,
@@ -800,10 +789,12 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                     vatNumber = cleanVat,
                     address = cleanAddress,
                     phone = cleanPhone,
+                    latitude = latitude,
+                    longitude = longitude,
                     lastSeen = txTimestamp
                 )
                 repository.insertStore(newStore)
-                Log.d("StoreRegistry", "Inserted new store: $normalizedName")
+                Log.d("StoreRegistry", "Inserted new store: $normalizedName with GPS: $latitude, $longitude")
             }
         }
     }
@@ -1593,19 +1584,64 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
 
                 val textToParse = ocrRawText
 
+                // Fetch GPS location during scan
+                var currentLat: Double? = null
+                var currentLng: Double? = null
+                try {
+                    val location = getCurrentLocation()
+                    if (location != null) {
+                        currentLat = location.latitude
+                        currentLng = location.longitude
+                        scannedReceiptLatitude.value = currentLat
+                        scannedReceiptLongitude.value = currentLng
+                        Log.d(TAG, "Fetched location for receipt: $currentLat, $currentLng")
+                    } else {
+                        scannedReceiptLatitude.value = null
+                        scannedReceiptLongitude.value = null
+                        Log.d(TAG, "Location not available or permissions absent for scan")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed retrieving GPS location during scan", e)
+                }
+
+                // Check closest stores on server
+                var closestStore: com.example.api.ClosestStoreResponse? = null
+                if (currentLat != null && currentLng != null) {
+                    val token = userToken.value ?: getApplication<Application>()
+                        .getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE)
+                        .getString("user_token", null)
+                    closestStore = com.example.api.LocalBackendServiceClient.getClosestStore(token, currentLat, currentLng)
+                    if (closestStore != null) {
+                        Log.d(TAG, "Found closest store from backend matching location within 50m: ${closestStore.displayName}")
+                    }
+                }
+
                 // 1. If Local LLM is downloaded and active, use on-device local model simulation
                 if (isLocalLlmActive.value && isLocalModelDownloaded.value) {
                     delay(1500) // Simula la latenza tipica di caricamento pesi/inferenza (1.5 secondi)
                     val result = parseReceiptUsingLocalLlm(textToParse)
                     val dateTs = calculateReceiptTimestamp(result, textToParse)
+                    
+                    var finalStoreName = result.storeName
+                    var finalVat = result.vatNumber
+                    var finalAddress = result.address
+                    var finalPhone = result.phone
+
+                    if (closestStore != null) {
+                        finalStoreName = closestStore.displayName
+                        if (finalVat.isNullOrBlank()) finalVat = closestStore.vatNumber
+                        if (finalAddress.isNullOrBlank()) finalAddress = closestStore.address
+                        if (finalPhone.isNullOrBlank()) finalPhone = closestStore.phone
+                    }
+
                     checkForReconciliation(
-                        store = "${result.storeName} (Local AI)",
+                        store = "${finalStoreName} (Local AI)",
                         total = result.totalAmount,
                         timestamp = dateTs,
                         newItems = result.items,
-                        newVat = result.vatNumber,
-                        newAddress = result.address,
-                        newPhone = result.phone
+                        newVat = finalVat,
+                        newAddress = finalAddress,
+                        newPhone = finalPhone
                     )
                     simulateWebSocketNotification("Android AICore / Galaxy AI: Elaborazione completata localmente (100% Offline)")
                     return@launch
@@ -1651,14 +1687,26 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                 // 5. Successful parsing!
                 val dateTs = calculateReceiptTimestamp(parsedResult, textToParse)
 
+                var finalStoreName = parsedResult.storeName
+                var finalVat = parsedResult.vatNumber
+                var finalAddress = parsedResult.address
+                var finalPhone = parsedResult.phone
+
+                if (closestStore != null) {
+                    finalStoreName = closestStore.displayName
+                    if (finalVat.isNullOrBlank()) finalVat = closestStore.vatNumber
+                    if (finalAddress.isNullOrBlank()) finalAddress = closestStore.address
+                    if (finalPhone.isNullOrBlank()) finalPhone = closestStore.phone
+                }
+
                 checkForReconciliation(
-                    store = parsedResult.storeName,
+                    store = finalStoreName,
                     total = parsedResult.totalAmount,
                     timestamp = dateTs,
                     newItems = parsedResult.items,
-                    newVat = parsedResult.vatNumber,
-                    newAddress = parsedResult.address,
-                    newPhone = parsedResult.phone
+                    newVat = finalVat,
+                    newAddress = finalAddress,
+                    newPhone = finalPhone
                 )
                 if (useLocalServer) {
                     simulateWebSocketNotification("Backend Server: Scansione scontrino elaborata tramite server dedicato.")
@@ -1673,6 +1721,38 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             } finally {
                 isProcessingScan.value = false
             }
+        }
+    }
+
+    private suspend fun getCurrentLocation(): android.location.Location? = suspendCancellableCoroutine { continuation ->
+        try {
+            val hasFine = androidx.core.content.ContextCompat.checkSelfPermission(
+                getApplication(),
+                android.Manifest.permission.ACCESS_FINE_LOCATION
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            val hasCoarse = androidx.core.content.ContextCompat.checkSelfPermission(
+                getApplication(),
+                android.Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+            if (!hasFine && !hasCoarse) {
+                if (continuation.isActive) continuation.resume(null)
+                return@suspendCancellableCoroutine
+            }
+
+            val client = com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(getApplication<android.app.Application>())
+            client.lastLocation.addOnCompleteListener { task ->
+                if (continuation.isActive) {
+                    if (task.isSuccessful) {
+                        continuation.resume(task.result)
+                    } else {
+                        continuation.resume(null)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("Location", "Failed to retrieve last location", e)
+            if (continuation.isActive) continuation.resume(null)
         }
     }
 

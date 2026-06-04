@@ -228,6 +228,42 @@ class MasterSyncWorker(
                 } catch (e: Exception) {
                     Log.e("MasterSyncWorker", "Errore nell'aggiornamento degli scontrini di gruppo scaricati", e)
                 }
+
+                // --- NUOVA PARTE: Sincronizzazione anagrafica negozi da /api/v1/sync/stores ---
+                try {
+                    val remoteStores = com.example.api.LocalBackendServiceClient.syncStoresFromServer(token)
+                    if (remoteStores.isNotEmpty()) {
+                        for (remote in remoteStores) {
+                            val normalizedName = remote.name.lowercase().trim()
+                            val existingStore = dao.getStoreByName(normalizedName) ?: (if (!remote.vatNumber.isNullOrBlank()) dao.getStoreByVat(remote.vatNumber) else null)
+                            if (existingStore == null) {
+                                val newStore = com.example.data.StoreInfo(
+                                    name = normalizedName,
+                                    displayName = remote.displayName,
+                                    vatNumber = remote.vatNumber,
+                                    address = remote.address,
+                                    latitude = remote.latitude,
+                                    longitude = remote.longitude,
+                                    phone = remote.phone,
+                                    lastSeen = System.currentTimeMillis()
+                                )
+                                dao.insertStore(newStore)
+                            } else {
+                                dao.updateStore(existingStore.copy(
+                                    displayName = remote.displayName,
+                                    vatNumber = remote.vatNumber ?: existingStore.vatNumber,
+                                    address = remote.address ?: existingStore.address,
+                                    phone = remote.phone ?: existingStore.phone,
+                                    latitude = remote.latitude ?: existingStore.latitude,
+                                    longitude = remote.longitude ?: existingStore.longitude,
+                                    lastSeen = java.lang.Math.max(existingStore.lastSeen, System.currentTimeMillis())
+                                ))
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("MasterSyncWorker", "Errore nella sincronizzazione dell'anagrafica dei negozi", e)
+                }
                 
                 return@withContext Result.success()
             } else {

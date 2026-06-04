@@ -19,5 +19,11 @@ data class GroceryItem(
     val averageDeltaDays: Double = 5.0, // average consumption interval (μ)
     val lastPurchaseTimestamp: Long = System.currentTimeMillis() - (5 * 24 * 60 * 60 * 1000L), // default: 5 days ago
     val storeName: String = "",
-    val barcode: String = ""
+    val barcode: String = "",
+    val nutriscore: String? = null,
+    val allergens: String? = null,
+    val calories: Double? = null,
+    val proteins: Double? = null,
+    val carbs: Double? = null,
+    val fat: Double? = null
 )
