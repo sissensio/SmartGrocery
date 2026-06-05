@@ -29,6 +29,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.PathEffect
@@ -715,32 +717,100 @@ fun ScannerScreen(
                                 }
 
                                 if (pItem.nutriscore != null || pItem.allergens != null || pItem.calories != null) {
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Column(
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    
+                                    val isApi31 = android.os.Build.VERSION.SDK_INT >= 31
+                                    
+                                    Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(vertical = 4.dp, horizontal = 0.dp)
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(
+                                                Brush.linearGradient(
+                                                    colors = listOf(
+                                                        Color.White.copy(alpha = 0.28f),
+                                                        Color.White.copy(alpha = 0.10f)
+                                                    )
+                                                )
+                                            )
+                                            .blur(if (isApi31) 12.dp else 0.dp)
+                                            .border(
+                                                width = 0.8.dp,
+                                                brush = Brush.linearGradient(
+                                                    colors = listOf(
+                                                        Color.White.copy(alpha = 0.55f),
+                                                        Color.White.copy(alpha = 0.15f)
+                                                    )
+                                                ),
+                                                shape = RoundedCornerShape(16.dp)
+                                            )
+                                            .padding(12.dp)
                                     ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            if (pItem.nutriscore != null) {
-                                                val scoreStr = pItem.nutriscore.uppercase()
-                                                val scoreBg = when(scoreStr) {
-                                                    "A", "B" -> SemanticGreen
-                                                    "C" -> SemanticYellow
-                                                    "D", "E" -> SemanticRed
+                                        Column(
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                if (pItem.nutriscore != null) {
+                                                    val scoreStr = pItem.nutriscore.uppercase()
+                                                    val scoreBg = when(scoreStr) {
+                                                        "A" -> Color(0xFF038751)
+                                                        "B" -> Color(0xFF85B827)
+                                                        "C" -> Color(0xFFF4B300)
+                                                        "D" -> Color(0xFFEE7F00)
+                                                        "E" -> Color(0xFFE63E12)
+                                                        else -> MaterialTheme.colorScheme.outline
+                                                    }
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(6.dp))
+                                                            .background(scoreBg)
+                                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = "NUTRI-SCORE $scoreStr",
+                                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                            color = Color.White
+                                                        )
+                                                    }
+                                                }
+
+                                                val estimatedNovaGroup = when {
+                                                    pItem.name.lowercase().contains("cola") || pItem.name.lowercase().contains("soda") || pItem.name.lowercase().contains("fanta") || pItem.name.lowercase().contains("sprite") || 
+                                                    pItem.name.lowercase().contains("patatine") || pItem.name.lowercase().contains("merendina") || pItem.name.lowercase().contains("snack") || pItem.name.lowercase().contains("wurstel") || 
+                                                    pItem.name.lowercase().contains("pizza surgelata") || pItem.name.lowercase().contains("pront") || pItem.name.lowercase().contains("insaccat") ||
+                                                    pItem.category.lowercase().contains("snack") || pItem.category.lowercase().contains("dolci") || pItem.category.lowercase().contains("bevande") -> 4
+                                                    
+                                                    pItem.name.lowercase().contains("conserva") || pItem.name.lowercase().contains("scatola") || pItem.name.lowercase().contains("tonno") || 
+                                                    pItem.name.lowercase().contains("formaggio") || pItem.name.lowercase().contains("pane fresco") || pItem.name.lowercase().contains("birra") || 
+                                                    pItem.category.lowercase().contains("latticini") || pItem.category.lowercase().contains("formaggi") -> 3
+                                                    
+                                                    pItem.name.lowercase().contains("olio") || pItem.name.lowercase().contains("burro") || pItem.name.lowercase().contains("zucchero") || 
+                                                    pItem.name.lowercase().contains("sale") || pItem.name.lowercase().contains("miele") || pItem.category.lowercase().contains("condimenti") -> 2
+                                                    
+                                                    else -> 1
+                                                }
+
+                                                val novaBg = when(estimatedNovaGroup) {
+                                                    1 -> Color(0xFF038751)
+                                                    2 -> Color(0xFFFFC107)
+                                                    3 -> Color(0xFFFF9800)
+                                                    4 -> Color(0xFFE63E12)
                                                     else -> MaterialTheme.colorScheme.outline
                                                 }
-                                                Surface(
-                                                    color = scoreBg,
-                                                    shape = RoundedCornerShape(4.dp),
-                                                    modifier = Modifier.padding(end = 6.dp)
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(novaBg)
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
                                                 ) {
                                                     Text(
-                                                        text = "NUTRI-SCORE $scoreStr",
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = Color.White,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        text = "NOVA $estimatedNovaGroup",
+                                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                        color = Color.White
                                                     )
                                                 }
                                             }
@@ -751,28 +821,41 @@ fun ScannerScreen(
                                                            (if (pItem.proteins != null) " • P: ${String.format(Locale.US, "%.1f", pItem.proteins)}g" else "") +
                                                            (if (pItem.carbs != null) " • C: ${String.format(Locale.US, "%.1f", pItem.carbs)}g" else "") +
                                                            (if (pItem.fat != null) " • F: ${String.format(Locale.US, "%.1f", pItem.fat)}g" else ""),
-                                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                                    style = MaterialTheme.typography.bodySmall.copy(
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        fontSize = 11.sp
+                                                    ),
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                             }
-                                        }
-                                        
-                                        if (!pItem.allergens.isNullOrBlank()) {
-                                            Spacer(modifier = Modifier.height(2.dp))
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Warning,
-                                                    contentDescription = "Allergeni",
-                                                    tint = SemanticRed,
-                                                    modifier = Modifier.size(12.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text(
-                                                     text = "Allergeni: ${pItem.allergens}",
-                                                     style = MaterialTheme.typography.labelSmall,
-                                                     color = SemanticRed,
-                                                     fontWeight = FontWeight.SemiBold
-                                                )
+
+                                            if (!pItem.allergens.isNullOrBlank()) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Warning,
+                                                        contentDescription = "Allergeni",
+                                                        tint = SemanticRed,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                    Text(
+                                                        text = "Allergeni: ",
+                                                        style = MaterialTheme.typography.labelSmall.copy(
+                                                            color = SemanticRed,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    )
+                                                    Text(
+                                                        text = pItem.allergens,
+                                                        style = MaterialTheme.typography.labelSmall.copy(
+                                                            color = SemanticRed,
+                                                            fontWeight = FontWeight.ExtraBold
+                                                        ),
+                                                        modifier = Modifier.testTag("scanned_item_allergens")
+                                                    )
+                                                }
                                             }
                                         }
                                     }

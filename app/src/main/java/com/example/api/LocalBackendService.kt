@@ -161,6 +161,20 @@ data class LedgerSubmitRequest(
 )
 
 @JsonClass(generateAdapter = true)
+data class NutritionAnalyticsResponse(
+    @Json(name = "total_items_with_data") val totalItemsWithData: Int,
+    @Json(name = "distribution") val distribution: Map<String, Int>,
+    @Json(name = "percentages") val percentages: Map<String, Double>
+)
+
+@JsonClass(generateAdapter = true)
+data class NovaAnalyticsResponse(
+    @Json(name = "total_items_with_data") val totalItemsWithData: Int,
+    @Json(name = "distribution") val distribution: Map<String, Int>,
+    @Json(name = "percentages") val percentages: Map<String, Double>
+)
+
+@JsonClass(generateAdapter = true)
 data class DeviceStatusDto(
     @Json(name = "is_blocked") val isBlocked: Boolean,
     @Json(name = "custom_limit") val customLimit: Double? = null
@@ -1189,6 +1203,56 @@ object LocalBackendServiceClient {
             }
         } catch (e: Exception) {
             Log.e("LocalBackendService", "Errore aggiornamento nazionalita", e)
+            return@withContext null
+        }
+    }
+
+    suspend fun getNutritionAnalytics(token: String?, groupId: String, days: Int): NutritionAnalyticsResponse? = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext null
+        val urlBuilder = "${getBaseUrl()}/api/v1/analytics/nutrition".toHttpUrlOrNull()?.newBuilder() ?: return@withContext null
+        urlBuilder.addQueryParameter("group_id", groupId)
+        urlBuilder.addQueryParameter("days", days.toString())
+        val reqBuilder = Request.Builder().url(urlBuilder.build())
+        if (!token.isNullOrBlank()) {
+            reqBuilder.header("Authorization", "Bearer $token")
+        }
+        val request = reqBuilder.get().build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext null
+                    return@withContext moshi.adapter(NutritionAnalyticsResponse::class.java).fromJson(raw)
+                }
+                Log.e("LocalBackendService", "getNutritionAnalytics returned HTTP ${response.code}")
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            Log.e("LocalBackendService", "Errore in getNutritionAnalytics", e)
+            return@withContext null
+        }
+    }
+
+    suspend fun getNovaAnalytics(token: String?, groupId: String, days: Int): NovaAnalyticsResponse? = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext null
+        val urlBuilder = "${getBaseUrl()}/api/v1/analytics/nova".toHttpUrlOrNull()?.newBuilder() ?: return@withContext null
+        urlBuilder.addQueryParameter("group_id", groupId)
+        urlBuilder.addQueryParameter("days", days.toString())
+        val reqBuilder = Request.Builder().url(urlBuilder.build())
+        if (!token.isNullOrBlank()) {
+            reqBuilder.header("Authorization", "Bearer $token")
+        }
+        val request = reqBuilder.get().build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext null
+                    return@withContext moshi.adapter(NovaAnalyticsResponse::class.java).fromJson(raw)
+                }
+                Log.e("LocalBackendService", "getNovaAnalytics returned HTTP ${response.code}")
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            Log.e("LocalBackendService", "Errore in getNovaAnalytics", e)
             return@withContext null
         }
     }

@@ -160,6 +160,43 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    val nutritionAnalytics = MutableStateFlow<com.example.api.NutritionAnalyticsResponse?>(null)
+    val novaAnalytics = MutableStateFlow<com.example.api.NovaAnalyticsResponse?>(null)
+    val isAnalyticsLoading = MutableStateFlow(false)
+    val analyticsError = MutableStateFlow<String?>(null)
+
+    fun loadAnalytics(days: Int = 30) {
+        viewModelScope.launch {
+            isAnalyticsLoading.value = true
+            analyticsError.value = null
+            try {
+                val token = getApplication<android.app.Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
+                val targetGroupId = userProfile.value?.defaultGroupId ?: spendingGroups.value.firstOrNull()?.id
+                if (targetGroupId == null) {
+                    analyticsError.value = "Nessun gruppo domestico disponibile. Crea o unisciti a un gruppo nelle Impostazioni."
+                    nutritionAnalytics.value = null
+                    novaAnalytics.value = null
+                    isAnalyticsLoading.value = false
+                    return@launch
+                }
+                
+                val nutrRes = com.example.api.LocalBackendServiceClient.getNutritionAnalytics(token, targetGroupId, days)
+                val novaRes = com.example.api.LocalBackendServiceClient.getNovaAnalytics(token, targetGroupId, days)
+                
+                nutritionAnalytics.value = nutrRes
+                novaAnalytics.value = novaRes
+                if (nutrRes == null && novaRes == null) {
+                    analyticsError.value = "Impossibile recuperare i dati analytics. Verifica la connessione al backend."
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("GroceryViewModel", "Errore in loadAnalytics", e)
+                analyticsError.value = e.localizedMessage ?: "Errore imprevisto durante il caricamento."
+            } finally {
+                isAnalyticsLoading.value = false
+            }
+        }
+    }
+
     fun stopPollingActiveSessions() {
         activeSessionsJob?.cancel()
     }

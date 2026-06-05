@@ -40,6 +40,7 @@ import java.util.*
 fun HomeScreen(
     viewModel: GroceryViewModel,
     onNavigateToScanner: () -> Unit,
+    onNavigateToReport: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val pendingBacklog by viewModel.pendingReceipts.collectAsState()
@@ -243,6 +244,66 @@ fun HomeScreen(
                             )
                         },
                         modifier = Modifier.testTag("network_toggle")
+                    )
+                }
+            }
+        }
+
+        // report quick-link banner/card
+        item {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.40f)
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onNavigateToReport() }
+                    .testTag("home_report_link_card")
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.primary),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Assessment,
+                                contentDescription = "Report",
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Analisi Nutrizionale & NOVA",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                text = "Distribuzione dei nutrienti e processamento spesa del gruppo",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = "Vai",
+                        tint = MaterialTheme.colorScheme.primary
                     )
                 }
             }

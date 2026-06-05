@@ -19,6 +19,8 @@ import androidx.compose.material.icons.outlined.Balance
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.ShoppingCart
+import androidx.compose.material.icons.filled.Assessment
+import androidx.compose.material.icons.outlined.Assessment
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -31,6 +33,7 @@ import com.example.ui.screens.LedgerScreen
 import com.example.ui.screens.ScannerScreen
 import com.example.ui.screens.ShoppingScreen
 import com.example.ui.screens.StoresScreen
+import com.example.ui.screens.ReportScreen
 import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.outlined.Store
 import com.example.ui.theme.MyApplicationTheme
@@ -176,6 +179,20 @@ class MainActivity : FragmentActivity() {
                                     label = { Text("Negozi") },
                                     modifier = Modifier.testTag("nav_tab_stores")
                                 )
+
+                                NavigationBarItem(
+                                    selected = currentTab == 5,
+                                    onClick = { currentTab = 5 },
+                                    icon = {
+                                        Icon(
+                                            imageVector = if (currentTab == 5) Icons.Filled.Assessment else Icons.Outlined.Assessment,
+                                            contentDescription = "Report Consumi",
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                    },
+                                    label = { Text("Report") },
+                                    modifier = Modifier.testTag("nav_tab_report")
+                                )
                             }
                         }
                     }
@@ -190,6 +207,7 @@ class MainActivity : FragmentActivity() {
                         0 -> HomeScreen(
                             viewModel = viewModel,
                             onNavigateToScanner = { currentTab = 2 },
+                            onNavigateToReport = { currentTab = 5 },
                             modifier = screenModifier
                         )
                         1 -> ShoppingScreen(
@@ -205,6 +223,10 @@ class MainActivity : FragmentActivity() {
                             modifier = screenModifier
                         )
                         4 -> StoresScreen(
+                            viewModel = viewModel,
+                            modifier = screenModifier
+                        )
+                        5 -> ReportScreen(
                             viewModel = viewModel,
                             modifier = screenModifier
                         )
