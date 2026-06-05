@@ -270,37 +270,63 @@ fun StoresScreen(
                                     }
                                 }
 
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton(
-                                        onClick = {
-                                            storeToEdit = store
-                                            editDisplayName = store.displayName ?: store.name
-                                            editAddress = store.address ?: ""
-                                            editVat = store.vatNumber ?: ""
-                                            editPhone = store.phone ?: ""
-                                        },
-                                        modifier = Modifier.size(36.dp).testTag("edit_store_button_${store.id}")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Edit,
-                                            contentDescription = "Modifica Informazioni Negozio",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
+                                if (!store.isCertified) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        IconButton(
+                                            onClick = {
+                                                storeToEdit = store
+                                                editDisplayName = store.displayName ?: store.name
+                                                editAddress = store.address ?: ""
+                                                editVat = store.vatNumber ?: ""
+                                                editPhone = store.phone ?: ""
+                                            },
+                                            modifier = Modifier.size(36.dp).testTag("edit_store_button_${store.id}")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Edit,
+                                                contentDescription = "Modifica Informazioni Negozio",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        IconButton(
+                                            onClick = {
+                                                viewModel.deleteStore(store)
+                                            },
+                                            modifier = Modifier.size(36.dp).testTag("delete_store_button_${store.id}")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Elimina Negozio",
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
                                     }
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    IconButton(
-                                        onClick = {
-                                            viewModel.deleteStore(store)
-                                        },
-                                        modifier = Modifier.size(36.dp).testTag("delete_store_button_${store.id}")
+                                } else {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        shape = RoundedCornerShape(12.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Delete,
-                                            contentDescription = "Elimina Negozio",
-                                            tint = MaterialTheme.colorScheme.error,
-                                            modifier = Modifier.size(20.dp)
-                                        )
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = "Certified Supermarket",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "Certificato",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -556,39 +582,65 @@ fun StoresScreen(
                         }
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                viewModel.deleteStore(store)
-                                selectedStoreForDetail = null
-                            },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                            modifier = Modifier.weight(1f)
+                    if (!store.isCertified) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Icon(imageVector = Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Rimuovi Registrazione")
-                        }
+                            OutlinedButton(
+                                onClick = {
+                                    viewModel.deleteStore(store)
+                                    selectedStoreForDetail = null
+                                },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(imageVector = Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Rimuovi Registrazione")
+                            }
 
-                        Button(
-                            onClick = {
-                                storeToEdit = store
-                                editDisplayName = store.displayName ?: store.name
-                                editAddress = store.address ?: ""
-                                editVat = store.vatNumber ?: ""
-                                editPhone = store.phone ?: ""
-                                editLat = store.latitude
-                                editLng = store.longitude
-                                selectedStoreForDetail = null
-                            },
-                            modifier = Modifier.weight(1f)
+                            Button(
+                                onClick = {
+                                    storeToEdit = store
+                                    editDisplayName = store.displayName ?: store.name
+                                    editAddress = store.address ?: ""
+                                    editVat = store.vatNumber ?: ""
+                                    editPhone = store.phone ?: ""
+                                    editLat = store.latitude
+                                    editLng = store.longitude
+                                    selectedStoreForDetail = null
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(imageVector = Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Modifica")
+                            }
+                        }
+                    } else {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(imageVector = Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Modifica")
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "Certified",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Questo supermercato è certificato ufficiale e non può essere modificato o rimosso.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
                         }
                     }
                 }

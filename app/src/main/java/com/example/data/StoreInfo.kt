@@ -14,5 +14,6 @@ data class StoreInfo(
     val latitude: Double? = null,
     val longitude: Double? = null,
     val geofenceRadius: Float = 100f, // Meters
+    val isCertified: Boolean = false,
     val lastSeen: Long = System.currentTimeMillis()
 )

@@ -405,6 +405,61 @@ fun GlobalSettingsDialog(
                                                 Text("Salva")
                                             }
                                         }
+
+                                        Spacer(modifier = Modifier.height(16.dp))
+
+                                        // Dropdown nazione
+                                        val nations = listOf(
+                                            "IT" to "Italia (IT)",
+                                            "FR" to "Francia (FR)",
+                                            "ES" to "Spagna (ES)",
+                                            "DE" to "Germania (DE)"
+                                        )
+                                        var dropdownExpanded by remember { mutableStateOf(false) }
+                                        val currentNationIso = userProfile.nationality ?: "IT"
+                                        val currentNationDisplay = nations.find { it.first == currentNationIso.uppercase() }?.second ?: "Italia (IT)"
+
+                                        Box(modifier = Modifier.fillMaxWidth()) {
+                                            OutlinedTextField(
+                                                value = currentNationDisplay,
+                                                onValueChange = {},
+                                                readOnly = true,
+                                                label = { Text("Nazionalità") },
+                                                trailingIcon = {
+                                                    IconButton(onClick = { dropdownExpanded = true }) {
+                                                        Icon(
+                                                            imageVector = if (dropdownExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.ArrowDropDown,
+                                                            contentDescription = "Espandi selezione"
+                                                        )
+                                                    }
+                                                },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                shape = RoundedCornerShape(12.dp)
+                                            )
+                                            // Invisible click interceptor to open dropdown when tapping anywhere on the text field
+                                            Box(
+                                                modifier = Modifier
+                                                    .matchParentSize()
+                                                    .background(Color.Transparent)
+                                                    .clickable { dropdownExpanded = true }
+                                            )
+
+                                            DropdownMenu(
+                                                expanded = dropdownExpanded,
+                                                onDismissRequest = { dropdownExpanded = false },
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                nations.forEach { pair ->
+                                                    DropdownMenuItem(
+                                                        text = { Text(pair.second, style = MaterialTheme.typography.bodyMedium) },
+                                                        onClick = {
+                                                            viewModel.updateNationality(pair.first)
+                                                            dropdownExpanded = false
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
                                     }
 
                                     HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))

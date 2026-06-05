@@ -245,6 +245,7 @@ class MasterSyncWorker(
                                     latitude = remote.latitude,
                                     longitude = remote.longitude,
                                     phone = remote.phone,
+                                    isCertified = remote.isCertified,
                                     lastSeen = System.currentTimeMillis()
                                 )
                                 dao.insertStore(newStore)
@@ -256,6 +257,7 @@ class MasterSyncWorker(
                                     phone = remote.phone ?: existingStore.phone,
                                     latitude = remote.latitude ?: existingStore.latitude,
                                     longitude = remote.longitude ?: existingStore.longitude,
+                                    isCertified = remote.isCertified,
                                     lastSeen = java.lang.Math.max(existingStore.lastSeen, System.currentTimeMillis())
                                 ))
                             }

@@ -105,6 +105,9 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
         }
+
+        // Implicitly detect country code on app startup using Geocoder
+        detectNationalityImplicitly()
     }
 
     private fun enqueueMasterSync() {
@@ -220,6 +223,83 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                     userProfile.value = updatedProfile
                     refreshUserProfileAndGroups()
                 }
+            }
+        }
+    }
+
+    fun updateNationality(nationality: String) {
+        viewModelScope.launch {
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
+            if (token != null) {
+                val updatedProfile = com.example.api.LocalBackendServiceClient.updateNationality(token, nationality)
+                if (updatedProfile != null) {
+                    userProfile.value = updatedProfile
+                    refreshUserProfileAndGroups()
+                    Log.d(TAG, "Nationality manually updated to: $nationality")
+                }
+            }
+        }
+    }
+
+    fun detectNationalityImplicitly() {
+        viewModelScope.launch {
+            try {
+                val location = getCurrentLocation()
+                var detectedCountry: String? = null
+                if (location != null) {
+                    val geocoder = android.location.Geocoder(getApplication(), java.util.Locale.getDefault())
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                        try {
+                            suspendCancellableCoroutine<Unit> { continuation ->
+                                geocoder.getFromLocation(location.latitude, location.longitude, 1, object : android.location.Geocoder.GeocodeListener {
+                                    override fun onGeocode(addresses: List<android.location.Address>) {
+                                        val country = addresses.firstOrNull()?.countryCode
+                                        if (!country.isNullOrBlank()) {
+                                            detectedCountry = country
+                                        }
+                                        continuation.resume(Unit)
+                                    }
+                                    override fun onError(errorMessage: String?) {
+                                        continuation.resume(Unit)
+                                    }
+                                })
+                            }
+                        } catch (ex: Exception) {
+                            Log.e(TAG, "Failed Tiramisu geocoder call", ex)
+                        }
+                    } else {
+                        @Suppress("DEPRECATION")
+                        val addresses = geocoder.getFromLocation(location.latitude, location.longitude, 1)
+                        val country = addresses?.firstOrNull()?.countryCode
+                        if (!country.isNullOrBlank()) {
+                            detectedCountry = country
+                        }
+                    }
+                }
+                if (detectedCountry == null) {
+                    detectedCountry = java.util.Locale.getDefault().country
+                }
+                if (!detectedCountry.isNullOrBlank()) {
+                    val cleanCode = detectedCountry!!.uppercase().trim()
+                    val validCodes = listOf("IT", "FR", "ES", "DE")
+                    val finalCode = if (cleanCode in validCodes) cleanCode else "IT"
+
+                    val prefs = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE)
+                    val alreadyDetected = prefs.getBoolean("nationality_detected", false)
+                    if (!alreadyDetected) {
+                        val token = userToken.value ?: prefs.getString("user_token", null)
+                        if (token != null) {
+                            val updated = com.example.api.LocalBackendServiceClient.updateNationality(token, finalCode)
+                            if (updated != null) {
+                                userProfile.value = updated
+                                prefs.edit().putBoolean("nationality_detected", true).apply()
+                                Log.d(TAG, "Implicitly configured nationality via Geocoder: $finalCode")
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to implicitly detect nationality via Geocoder", e)
             }
         }
     }
@@ -795,6 +875,59 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                 )
                 repository.insertStore(newStore)
                 Log.d("StoreRegistry", "Inserted new store: $normalizedName with GPS: $latitude, $longitude")
+            }
+        }
+    }
+
+    fun createStoreFromScanner(name: String, latitude: Double?, longitude: Double?, onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val normalizedName = normalizeStoreName(name)
+                val token = userToken.value ?: getApplication<Application>()
+                    .getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE)
+                    .getString("user_token", null)
+                
+                val response = com.example.api.LocalBackendServiceClient.createStoreOnServer(
+                    token = token,
+                    name = normalizedName,
+                    displayName = name,
+                    latitude = latitude,
+                    longitude = longitude
+                )
+                
+                if (response != null) {
+                    val newStore = StoreInfo(
+                        id = response.id ?: 0,
+                        name = normalizedName,
+                        displayName = response.displayName,
+                        vatNumber = response.vatNumber,
+                        address = response.address,
+                        phone = response.phone,
+                        latitude = response.latitude,
+                        longitude = response.longitude,
+                        geofenceRadius = response.geofenceRadius,
+                        isCertified = response.isCertified,
+                        lastSeen = System.currentTimeMillis()
+                    )
+                    repository.insertStore(newStore)
+                    scannedStoreName.value = response.displayName
+                    onResult(null)
+                } else {
+                    // Fallback to local database insertion
+                    val newStore = StoreInfo(
+                        name = normalizedName,
+                        displayName = name,
+                        latitude = latitude,
+                        longitude = longitude,
+                        lastSeen = System.currentTimeMillis()
+                    )
+                    repository.insertStore(newStore)
+                    scannedStoreName.value = name
+                    onResult(null)
+                }
+            } catch (e: Exception) {
+                Log.e("GroceryViewModel", "Error creating inline store", e)
+                onResult(e.message)
             }
         }
     }
@@ -2379,6 +2512,8 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                     .putString("user_role", res.role)
                     .apply()
                 simulateWebSocketNotification("Accesso effettuato! Benvenuto, $email.")
+                // Attempt to implicitly detect country code as first thing after login
+                detectNationalityImplicitly()
                 // Fresh pull
                 enqueueMasterSync()
             } else {
@@ -2449,6 +2584,8 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                     .putString("user_role", res.role)
                     .apply()
                 simulateWebSocketNotification("Sblocco Biometrico Eseguito con successo! Sessione attiva.")
+                // Attempt to implicitly detect country code as first thing after biometric login
+                detectNationalityImplicitly()
                 // Fresh pull
                 enqueueMasterSync()
             } else {

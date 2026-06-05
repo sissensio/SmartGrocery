@@ -102,7 +102,8 @@ data class UserProfileResponse(
     @Json(name = "profile_code") val profileCode: String?,
     @Json(name = "default_group_id") val defaultGroupId: String?,
     @Json(name = "created_at") val createdAt: String?,
-    @Json(name = "nickname") val nickname: String? = null
+    @Json(name = "nickname") val nickname: String? = null,
+    @Json(name = "nationality") val nationality: String? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -295,7 +296,8 @@ data class ClosestStoreResponse(
     @Json(name = "phone") val phone: String? = null,
     @Json(name = "latitude") val latitude: Double? = null,
     @Json(name = "longitude") val longitude: Double? = null,
-    @Json(name = "geofence_radius") val geofenceRadius: Float = 100f
+    @Json(name = "geofence_radius") val geofenceRadius: Float = 100f,
+    @Json(name = "is_certified") val isCertified: Boolean = false
 )
 
 @JsonClass(generateAdapter = true)
@@ -1120,6 +1122,60 @@ object LocalBackendServiceClient {
         } catch (e: Exception) {
             Log.e("LocalBackendService", "Errore in syncStoresFromServer", e)
             return@withContext emptyList()
+        }
+    }
+
+    suspend fun createStoreOnServer(
+        token: String?,
+        name: String,
+        displayName: String,
+        latitude: Double?,
+        longitude: Double?
+    ): ClosestStoreResponse? = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext null
+        val url = "${getBaseUrl()}/api/v1/scan/stores/create"
+        val latPart = if (latitude != null) "\"latitude\":$latitude" else "\"latitude\":null"
+        val lngPart = if (longitude != null) "\"longitude\":$longitude" else "\"longitude\":null"
+        val payload = "{\"name\":\"$name\",\"display_name\":\"$displayName\",$latPart,$lngPart}"
+        val reqBuilder = Request.Builder().url(url)
+        if (!token.isNullOrBlank()) {
+            reqBuilder.header("Authorization", "Bearer $token")
+        }
+        val request = reqBuilder.post(payload.toRequestBody("application/json".toMediaType())).build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext null
+                    return@withContext moshi.adapter(ClosestStoreResponse::class.java).fromJson(raw)
+                }
+                Log.e("LocalBackendService", "createStoreOnServer returned HTTP ${response.code}")
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            Log.e("LocalBackendService", "Errore in createStoreOnServer", e)
+            return@withContext null
+        }
+    }
+
+    suspend fun updateNationality(token: String, nationality: String): UserProfileResponse? = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext null
+        val url = "${getBaseUrl()}/api/v1/auth/nationality"
+        val payload = "{\"nationality\":\"$nationality\"}"
+        val reqBuilder = Request.Builder().url(url)
+            .header("Authorization", "Bearer $token")
+            .put(payload.toRequestBody("application/json".toMediaType()))
+        val request = reqBuilder.build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext null
+                    return@withContext moshi.adapter(UserProfileResponse::class.java).fromJson(raw)
+                }
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            Log.e("LocalBackendService", "Errore aggiornamento nazionalita", e)
+            return@withContext null
         }
     }
 }

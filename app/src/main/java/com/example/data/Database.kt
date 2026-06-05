@@ -148,7 +148,7 @@ interface GroceryDao {
 
 @Database(
     entities = [GroceryItem::class, PendingReceipt::class, LedgerEntry::class, StoreInfo::class, NotificationAck::class, BackendNotificationEntity::class, SpendingGroup::class, ShoppingList::class],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

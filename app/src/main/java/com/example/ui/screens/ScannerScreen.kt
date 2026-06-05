@@ -111,6 +111,15 @@ fun ScannerScreen(
     val scannedReceiptTimestamp by viewModel.scannedReceiptTimestamp.collectAsState()
     val isReceiptDateAutoDetected by viewModel.isReceiptDateAutoDetected.collectAsState()
 
+    val allStores by viewModel.allStores.collectAsState()
+    val scannedReceiptLatitude by viewModel.scannedReceiptLatitude.collectAsState()
+    val scannedReceiptLongitude by viewModel.scannedReceiptLongitude.collectAsState()
+
+    var showInlineCreateStoreBottomSheet by remember { mutableStateOf(false) }
+    var inlineStoreInputName by remember { mutableStateOf("") }
+    var duplicateCandidates by remember { mutableStateOf<List<com.example.data.StoreInfo>>(emptyList()) }
+    var showAntiDuplicationDialog by remember { mutableStateOf(false) }
+
     // Simulator states for laplacian variance (Section 5.1)
     var isSimulatingAutoTrigger by remember { mutableStateOf(false) }
     var laplaceVariance by remember { mutableStateOf(4.2) }
@@ -421,13 +430,61 @@ fun ScannerScreen(
             }
 
             item {
+                val storeExists = remember(scannedStore, allStores) {
+                    allStores.any { 
+                        it.name.lowercase().trim() == scannedStore.lowercase().trim() || 
+                        it.displayName.lowercase().trim() == scannedStore.lowercase().trim()
+                    }
+                }
+                
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        text = "Smart-Split: $scannedStore",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Smart-Split: $scannedStore",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (!storeExists && scannedStore.isNotBlank() && scannedStore != "Supermercato") {
+                            IconButton(
+                                onClick = {
+                                    inlineStoreInputName = scannedStore
+                                    showInlineCreateStoreBottomSheet = true
+                                },
+                                modifier = Modifier
+                                    .testTag("inline_create_store_button")
+                                    .size(36.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(MaterialTheme.colorScheme.errorContainer, RoundedCornerShape(12.dp))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = "Crea Negozio Qui",
+                                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "Crea",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onErrorContainer
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                     Text(
                         text = if (reconciledLedgerEntryId != null) {
                             "Integrazione scontrino attiva (verranno preservati gli articoli originali già registrati). Scegli se distribuire i nuovi in Spazio Casa o Privato."
@@ -1098,6 +1155,223 @@ fun ScannerScreen(
             }
         )
     }
+  }
+
+  // Inline Crea Negozio Bottom Sheet
+  if (showInlineCreateStoreBottomSheet) {
+      ModalBottomSheet(
+          onDismissRequest = { showInlineCreateStoreBottomSheet = false },
+          containerColor = MaterialTheme.colorScheme.surface,
+          shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+          modifier = Modifier.fillMaxHeight(0.65f)
+      ) {
+          Column(
+              modifier = Modifier
+                  .fillMaxSize()
+                  .padding(24.dp),
+              verticalArrangement = Arrangement.spacedBy(16.dp)
+          ) {
+              Text(
+                  text = "Registra Nuovo Negozio",
+                  style = MaterialTheme.typography.titleLarge,
+                  fontWeight = FontWeight.Bold,
+                  color = MaterialTheme.colorScheme.primary
+              )
+              Text(
+                  text = "Crea all'istante l'anagrafica del negozio usando la posizione rilevata per questo scontrino.",
+                  style = MaterialTheme.typography.bodyMedium,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant
+              )
+              
+              OutlinedTextField(
+                  value = inlineStoreInputName,
+                  onValueChange = { inlineStoreInputName = it },
+                  label = { Text("Nome Supermercato (es. Conad, Esselunga)") },
+                  modifier = Modifier.fillMaxWidth().testTag("inline_store_name_input"),
+                  singleLine = true
+              )
+
+              if (scannedReceiptLatitude != null && scannedReceiptLongitude != null) {
+                  Surface(
+                      color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+                      shape = RoundedCornerShape(8.dp),
+                      modifier = Modifier.fillMaxWidth()
+                  ) {
+                      Row(
+                          modifier = Modifier.padding(10.dp),
+                          verticalAlignment = Alignment.CenterVertically
+                      ) {
+                          Icon(
+                              imageVector = Icons.Default.Place,
+                              contentDescription = "Coordinate GPS Rilevate",
+                              tint = MaterialTheme.colorScheme.primary,
+                              modifier = Modifier.size(18.dp)
+                          )
+                          Spacer(modifier = Modifier.width(8.dp))
+                          Text(
+                              text = "Coordinate GPS: ${String.format(Locale.US, "%.5f", scannedReceiptLatitude)}, ${String.format(Locale.US, "%.5f", scannedReceiptLongitude)}",
+                              style = MaterialTheme.typography.bodySmall,
+                              color = MaterialTheme.colorScheme.onPrimaryContainer
+                          )
+                      }
+                  }
+              } else {
+                  Row(
+                      modifier = Modifier.fillMaxWidth(),
+                      verticalAlignment = Alignment.CenterVertically
+                  ) {
+                      Icon(
+                          imageVector = Icons.Default.Warning,
+                          contentDescription = "No coordinates",
+                          tint = MaterialTheme.colorScheme.error,
+                          modifier = Modifier.size(16.dp)
+                      )
+                      Spacer(modifier = Modifier.width(6.dp))
+                      Text(
+                          text = "Posizione GPS non rilevata. Verrà memorizzato senza coordinate.",
+                          style = MaterialTheme.typography.bodySmall,
+                          color = MaterialTheme.colorScheme.error
+                      )
+                  }
+              }
+
+              Spacer(modifier = Modifier.weight(1f))
+
+              Button(
+                  onClick = {
+                      if (inlineStoreInputName.isNotBlank()) {
+                          val normalizedCandidate = inlineStoreInputName.lowercase().trim()
+                          val candidates = allStores.filter { existing ->
+                              val distance = if (scannedReceiptLatitude != null && scannedReceiptLongitude != null && existing.latitude != null && existing.longitude != null) {
+                                  val dLat = Math.toRadians(existing.latitude - scannedReceiptLatitude!!)
+                                  val dLng = Math.toRadians(existing.longitude - scannedReceiptLongitude!!)
+                                  val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                                          Math.cos(Math.toRadians(scannedReceiptLatitude!!)) * Math.cos(Math.toRadians(existing.latitude)) *
+                                          Math.sin(dLng / 2) * Math.sin(dLng / 2)
+                                  val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+                                  6371000.0 * c
+                              } else {
+                                  Double.MAX_VALUE
+                              }
+                              
+                              val nameSimilarity = existing.name.contains(normalizedCandidate) || 
+                                                   normalizedCandidate.contains(existing.name)
+                                                   
+                              distance < 100.0 || nameSimilarity
+                          }
+
+                          if (candidates.isNotEmpty()) {
+                              duplicateCandidates = candidates
+                              showAntiDuplicationDialog = true
+                          } else {
+                              viewModel.createStoreFromScanner(inlineStoreInputName, scannedReceiptLatitude, scannedReceiptLongitude) {
+                                  showInlineCreateStoreBottomSheet = false
+                              }
+                          }
+                      }
+                  },
+                  modifier = Modifier.fillMaxWidth().testTag("confirm_inline_create_store_button"),
+                  enabled = inlineStoreInputName.isNotBlank()
+              ) {
+                  Text("Registra Negozio")
+              }
+          }
+      }
+  }
+
+  // Anti-Duplication Confirmation Dialog
+  if (showAntiDuplicationDialog) {
+      AlertDialog(
+          onDismissRequest = { showAntiDuplicationDialog = false },
+          title = {
+              Row(verticalAlignment = Alignment.CenterVertically) {
+                  Icon(
+                      imageVector = Icons.Default.Warning,
+                      contentDescription = "Duplicato",
+                      tint = MaterialTheme.colorScheme.error
+                  )
+                  Spacer(modifier = Modifier.width(8.dp))
+                  Text("Possibile Duplicato Rilevato", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+              }
+          },
+          text = {
+              Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                  Text(
+                      text = "Ci sono già dei negozi registrati con un nome simile o situati nelle vicinanze. Clicca su uno di essi per collegarlo, oppure forza la creazione.",
+                      style = MaterialTheme.typography.bodyMedium,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant
+                  )
+                  
+                  duplicateCandidates.forEach { candidate ->
+                      Card(
+                          colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                          modifier = Modifier
+                              .fillMaxWidth()
+                              .clickable {
+                                  viewModel.scannedStoreName.value = candidate.displayName ?: candidate.name
+                                  showAntiDuplicationDialog = false
+                                  showInlineCreateStoreBottomSheet = false
+                              }
+                              .padding(vertical = 4.dp)
+                      ) {
+                          Row(
+                              modifier = Modifier.padding(12.dp),
+                              verticalAlignment = Alignment.CenterVertically
+                          ) {
+                              Icon(
+                                  imageVector = Icons.Default.CheckCircle,
+                                  contentDescription = "Usa",
+                                  tint = MaterialTheme.colorScheme.primary,
+                                  modifier = Modifier.size(20.dp)
+                              )
+                              Spacer(modifier = Modifier.width(8.dp))
+                              Column {
+                                  Text(
+                                      text = candidate.displayName ?: candidate.name,
+                                      style = MaterialTheme.typography.bodyMedium,
+                                      fontWeight = FontWeight.Bold
+                                  )
+                                  if (!candidate.address.isNullOrBlank()) {
+                                      Text(
+                                          text = candidate.address,
+                                          style = MaterialTheme.typography.bodySmall,
+                                          color = MaterialTheme.colorScheme.secondary
+                                      )
+                                  }
+                              }
+                          }
+                      }
+                  }
+                  
+                  Spacer(modifier = Modifier.height(8.dp))
+                  Text(
+                      text = "Vuoi forzare comunque la creazione del nuovo scontrino con un record negozio duplicato separato?",
+                      style = MaterialTheme.typography.bodySmall,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant
+                  )
+              }
+          },
+          confirmButton = {
+              TextButton(
+                  onClick = {
+                      viewModel.createStoreFromScanner(inlineStoreInputName, scannedReceiptLatitude, scannedReceiptLongitude) {
+                          showAntiDuplicationDialog = false
+                          showInlineCreateStoreBottomSheet = false
+                      }
+                  },
+                  modifier = Modifier.testTag("force_create_store_button")
+              ) {
+                  Text("Forza Creazione Separata", color = MaterialTheme.colorScheme.error)
+              }
+          },
+          dismissButton = {
+              TextButton(
+                  onClick = { showAntiDuplicationDialog = false }
+              ) {
+                  Text("Annulla")
+              }
+          }
+      )
   }
 
   // Dialog to Edit Receipt Date/Time
