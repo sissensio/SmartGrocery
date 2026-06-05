@@ -50,18 +50,24 @@ class GeofenceManager(private val context: Context) {
         }
 
         try {
-            if (geofences.isEmpty()) {
-                client.removeGeofences(geofencePendingIntent)
-                return
-            }
+            // Rimuove tutti i geofence attivi precedenti legati a questo PendingIntent per una pulizia totale prima della nuova registrazione
+            client.removeGeofences(geofencePendingIntent).addOnCompleteListener { task ->
+                if (geofences.isEmpty()) {
+                    android.util.Log.d("GeofenceManager", "Geofences cleared successfully. Count is 0.")
+                    return@addOnCompleteListener
+                }
 
-            val geofencingRequest = GeofencingRequest.Builder()
-                .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_EXIT)
-                .addGeofences(geofences)
-                .build()
-                
-            // We always try to add, which will update existing ones with same RequestId.
-            client.addGeofences(geofencingRequest, geofencePendingIntent)
+                val geofencingRequest = GeofencingRequest.Builder()
+                    .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_EXIT)
+                    .addGeofences(geofences)
+                    .build()
+
+                client.addGeofences(geofencingRequest, geofencePendingIntent).addOnSuccessListener {
+                    android.util.Log.d("GeofenceManager", "Successfully registered ${geofences.size} geofences. Current quota compliant (<= 90 physical limits).")
+                }.addOnFailureListener { ex ->
+                    android.util.Log.e("GeofenceManager", "Failed to add geofences during clean cycle", ex)
+                }
+            }
         } catch (e: Throwable) {
             android.util.Log.e("GeofenceManager", "Error updating geofences", e)
         }

@@ -36,16 +36,24 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                         try {
                             val db = com.example.data.AppDatabase.getDatabase(context)
                             
+                            // Recupera lo store_id del supermercato dalla tabella store_info
+                            val storeObj = db.groceryDao().getStoreByName(storeName) 
+                                ?: db.groceryDao().getStoreByName(storeName.lowercase().trim())
+                            val storeId = storeObj?.id ?: 0
+                            
                             val pReceipt = com.example.data.PendingReceipt(
-                                storeName = storeName,
+                                storeName = storeObj?.displayName ?: storeName,
                                 location = "Uscita rilevata da Geofence reale",
-                                timestamp = System.currentTimeMillis()
+                                timestamp = System.currentTimeMillis(),
+                                storeId = storeId
                             )
                             val id = db.groceryDao().insertPendingReceipt(pReceipt)
                             
-                            NotificationHelper.showGeofenceCheckoutNotification(context, storeName, id.toInt())
+                            Log.d("GeofenceReceiver", "Intercettata uscita da: $storeName (storeId: $storeId). Registrato scontrino in sospeso ID: $id.")
+                            
+                            NotificationHelper.showGeofenceCheckoutNotification(context, storeObj?.displayName ?: storeName, id.toInt())
                         } catch (e: Exception) {
-                            Log.e("GeofenceReceiver", "Error saving checkout: \${e.message}")
+                            Log.e("GeofenceReceiver", "Error saving checkout: ${e.message}")
                         }
                     }
                 }

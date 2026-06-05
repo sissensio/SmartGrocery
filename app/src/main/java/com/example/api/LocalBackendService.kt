@@ -1101,10 +1101,24 @@ object LocalBackendServiceClient {
         }
     }
 
-    suspend fun syncStoresFromServer(token: String?): List<ClosestStoreResponse> = withContext(Dispatchers.IO) {
+    suspend fun syncStoresFromServer(
+        token: String?,
+        latitude: Double? = null,
+        longitude: Double? = null,
+        city: String? = null
+    ): List<ClosestStoreResponse> = withContext(Dispatchers.IO) {
         if (!isHostConfigured()) return@withContext emptyList()
-        val url = "${getBaseUrl()}/api/v1/sync/stores"
-        val reqBuilder = Request.Builder().url(url)
+        val urlBuilder = "${getBaseUrl()}/api/v1/sync/stores".toHttpUrlOrNull()?.newBuilder() ?: return@withContext emptyList()
+        if (latitude != null) {
+            urlBuilder.addQueryParameter("latitude", latitude.toString())
+        }
+        if (longitude != null) {
+            urlBuilder.addQueryParameter("longitude", longitude.toString())
+        }
+        if (!city.isNullOrBlank()) {
+            urlBuilder.addQueryParameter("city", city)
+        }
+        val reqBuilder = Request.Builder().url(urlBuilder.build())
         if (token != null) {
             reqBuilder.header("Authorization", "Bearer $token")
         }

@@ -8,5 +8,6 @@ data class PendingReceipt(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val storeName: String,
     val location: String = "Vicino a te",
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val storeId: Int = 0
 )

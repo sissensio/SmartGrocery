@@ -1,7 +1,11 @@
 package com.example.workers
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.location.Location
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.example.data.AppDatabase
@@ -10,7 +14,9 @@ import com.example.api.LedgerItemDto
 import com.example.api.LedgerSubmitRequest
 import com.example.api.SyncRequest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 
 class MasterSyncWorker(
     appContext: Context,
@@ -231,7 +237,29 @@ class MasterSyncWorker(
 
                 // --- NUOVA PARTE: Sincronizzazione anagrafica negozi da /api/v1/sync/stores ---
                 try {
-                    val remoteStores = com.example.api.LocalBackendServiceClient.syncStoresFromServer(token)
+                    var reqLat: Double? = null
+                    var reqLng: Double? = null
+                    var reqCity: String? = null
+
+                    val location = getLastLocation(applicationContext)
+                    if (location != null) {
+                        reqLat = location.latitude
+                        reqLng = location.longitude
+                        val detectedCity = getCityFromLocation(applicationContext, location)
+                        if (!detectedCity.isNullOrBlank()) {
+                            reqCity = detectedCity
+                            prefs.edit().putString("user_city", detectedCity).apply()
+                        }
+                    } else {
+                        reqCity = prefs.getString("user_city", "Milano")
+                    }
+
+                    val remoteStores = com.example.api.LocalBackendServiceClient.syncStoresFromServer(
+                        token = token,
+                        latitude = reqLat,
+                        longitude = reqLng,
+                        city = reqCity
+                    )
                     if (remoteStores.isNotEmpty()) {
                         for (remote in remoteStores) {
                             val normalizedName = remote.name.lowercase().trim()
@@ -275,6 +303,52 @@ class MasterSyncWorker(
         } catch (e: Exception) {
             Log.e("MasterSyncWorker", "Error in sync", e)
             return@withContext Result.retry()
+        }
+    }
+
+    private suspend fun getLastLocation(context: Context): Location? = suspendCancellableCoroutine { continuation ->
+        try {
+            val hasFine = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+            val hasCoarse = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (!hasFine && !hasCoarse) {
+                if (continuation.isActive) continuation.resume(null)
+                return@suspendCancellableCoroutine
+            }
+
+            val client = com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(context)
+            client.lastLocation.addOnCompleteListener { task ->
+                if (continuation.isActive) {
+                    if (task.isSuccessful) {
+                        continuation.resume(task.result)
+                    } else {
+                        continuation.resume(null)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MasterSyncWorker", "Failed to retrieve location", e)
+            if (continuation.isActive) continuation.resume(null)
+        }
+    }
+
+    private suspend fun getCityFromLocation(context: Context, location: Location): String? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val geocoder = android.location.Geocoder(context, java.util.Locale.getDefault())
+                @Suppress("DEPRECATION")
+                val addresses = geocoder.getFromLocation(location.latitude, location.longitude, 1)
+                addresses?.firstOrNull()?.locality
+            } catch (e: Exception) {
+                Log.e("MasterSyncWorker", "Error getting city from geocoder", e)
+                null
+            }
         }
     }
 }
