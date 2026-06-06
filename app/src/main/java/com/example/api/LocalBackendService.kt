@@ -890,6 +890,18 @@ object LocalBackendServiceClient {
         }
     }
 
+    suspend fun pingBackend(): Boolean = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext false
+        try {
+            val socket = java.net.Socket()
+            socket.connect(java.net.InetSocketAddress(BuildConfig.LOCAL_BACKEND_IP, 8000), 800)
+            socket.close()
+            return@withContext true
+        } catch (e: java.lang.Exception) {
+            return@withContext false
+        }
+    }
+
     suspend fun parseShelfLabel(ocrText: String): CatalogItemCreate? = withContext(Dispatchers.IO) {
         lastApiError = null
         if (!isHostConfigured()) return@withContext null
@@ -1282,3 +1294,97 @@ object LocalBackendServiceClient {
         }
     }
 }
+
+@JsonClass(generateAdapter = true)
+data class OffProductResponse(
+    @Json(name = "status") val status: Int?,
+    @Json(name = "code") val code: String?,
+    @Json(name = "product") val product: OffProductDto?
+)
+
+@JsonClass(generateAdapter = true)
+data class OffProductDto(
+    @Json(name = "product_name") val productName: String?,
+    @Json(name = "product_name_it") val productNameIt: String?,
+    @Json(name = "brands") val brands: String?,
+    @Json(name = "categories") val categories: String?,
+    @Json(name = "quantity") val quantity: String?
+)
+
+object OffServiceClient {
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(3, TimeUnit.SECONDS)
+        .readTimeout(3, TimeUnit.SECONDS)
+        .build()
+
+    private val moshi = Moshi.Builder()
+        .add(KotlinJsonAdapterFactory())
+        .build()
+
+    suspend fun getProductDetails(barcode: String): CatalogItemCreate? = withContext(Dispatchers.IO) {
+        if (barcode.isBlank()) return@withContext null
+        val url = "https://world.openfoodfacts.org/api/v2/product/$barcode.json"
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "SmartGroceryManager - Android - Version 1.0 - sissensio@gmail.com")
+            .get()
+            .build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val bodyStr = response.body?.string() ?: return@withContext null
+                val res = moshi.adapter(OffProductResponse::class.java).fromJson(bodyStr)
+                if (res != null && (res.status == 1 || res.status == 200)) {
+                    val p = res.product ?: return@withContext null
+                    val weightVal = parseWeightFromQuantity(p.quantity)
+                    
+                    return@withContext CatalogItemCreate(
+                        barcode = barcode,
+                        name = p.productNameIt ?: p.productName ?: "Prodotto OFF",
+                        brand = p.brands?.split(",")?.firstOrNull()?.trim() ?: "Generico",
+                        category = p.categories?.split(",")?.firstOrNull()?.trim() ?: "Dispensa",
+                        price = 0.0,
+                        unitPrice = null,
+                        weight = weightVal,
+                        discountLabel = null,
+                        storeName = "Open Food Facts",
+                        vatNumber = null
+                    )
+                }
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            return@withContext null
+        }
+    }
+
+    private fun parseWeightFromQuantity(quantity: String?): Double? {
+        if (quantity.isNullOrBlank()) return null
+        val upper = quantity.uppercase()
+        val matchKg = Regex("""(\d+[,.]?\d*)\s*KG""").find(upper)
+        if (matchKg != null) return matchKg.groupValues[1].replace(",", ".").toDoubleOrNull()
+        
+        val matchG = Regex("""(\d+)\s*G""").find(upper)
+        if (matchG != null) {
+            val valG = matchG.groupValues[1].toDoubleOrNull()
+            if (valG != null) return valG / 1000.0
+        }
+        
+        val matchLt = Regex("""(\d+[,.]?\d*)\s*(L|LT|LITRI|LITRO)""").find(upper)
+        if (matchLt != null) return matchLt.groupValues[1].replace(",", ".").toDoubleOrNull()
+
+        val matchCl = Regex("""(\d+)\s*CL""").find(upper)
+        if (matchCl != null) {
+            val valCl = matchCl.groupValues[1].toDoubleOrNull()
+            if (valCl != null) return valCl / 100.0
+        }
+
+        val matchMl = Regex("""(\d+)\s*ML""").find(upper)
+        if (matchMl != null) {
+            val valMl = matchMl.groupValues[1].toDoubleOrNull()
+            if (valMl != null) return valMl / 1000.0
+        }
+        return null
+    }
+}
+

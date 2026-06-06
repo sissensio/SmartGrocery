@@ -2368,19 +2368,56 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             isProcessingShelfScan.value = true
             try {
-                val useLocalServer = com.example.BuildConfig.SEND_OCR_TO_BACKEND
+                val localItem = parseShelfLabelHeuristicsFallback(ocrRawText)
+                var finalBarcode = barcodeFromScanner?.trim() ?: ""
+                if (finalBarcode.isBlank()) {
+                    finalBarcode = localItem.barcode
+                }
+
                 var parsedItem: com.example.api.CatalogItemCreate? = null
-                if (useLocalServer) {
-                    parsedItem = com.example.api.LocalBackendServiceClient.parseShelfLabel(ocrRawText)
-                } else {
-                    parsedItem = com.example.api.GeminiServiceClient.parseShelfLabelText(ocrRawText)
+
+                // 1. Priorità: Interrogazione diretta a Open Food Facts per barcode "reali"
+                val isValidEan = finalBarcode.isNotEmpty() && finalBarcode.matches(Regex("""\d{8,13}"""))
+                if (isValidEan) {
+                    try {
+                        val offItem = com.example.api.OffServiceClient.getProductDetails(finalBarcode)
+                        if (offItem != null) {
+                            // Uniamo i dati ad alta precisione di OFF con i prezzi e sconti reali letti dall'OCR locale
+                            parsedItem = offItem.copy(
+                                price = localItem.price,
+                                unitPrice = localItem.unitPrice,
+                                discountLabel = localItem.discountLabel ?: offItem.discountLabel,
+                                storeName = localItem.storeName ?: offItem.storeName
+                            )
+                        }
+                    } catch (e: Exception) {
+                        // OFF fallback silente alla chiamata successiva
+                    }
                 }
+
+                // 2. Controllo e routing: se non trovato in OFF, interroghiamo backend o Gemini
                 if (parsedItem == null) {
-                    parsedItem = parseShelfLabelHeuristicsFallback(ocrRawText)
+                    val useLocalServer = com.example.BuildConfig.SEND_OCR_TO_BACKEND
+                    if (useLocalServer) {
+                        // Verifica preventiva di connessione/ping rapido al backend locale (timeout a 800ms)
+                        val isBackendAlive = com.example.api.LocalBackendServiceClient.pingBackend()
+                        if (isBackendAlive) {
+                            parsedItem = com.example.api.LocalBackendServiceClient.parseShelfLabel(ocrRawText)
+                        }
+                    } else {
+                        parsedItem = com.example.api.GeminiServiceClient.parseShelfLabelText(ocrRawText)
+                    }
                 }
-                if (!barcodeFromScanner.isNullOrBlank()) {
-                    parsedItem = parsedItem.copy(barcode = barcodeFromScanner)
+
+                // 3. Fallback finale offline: se tutti i servizi falliscono o non sono raggiungibili, usa euristiche locali
+                if (parsedItem == null) {
+                    parsedItem = localItem
                 }
+
+                if (!finalBarcode.isNullOrBlank()) {
+                    parsedItem = parsedItem.copy(barcode = finalBarcode)
+                }
+
                 parsedShelfLabelScanResult.value = parsedItem
             } catch (e: Exception) {
                 var currentHeuristic = parseShelfLabelHeuristicsFallback(ocrRawText)
