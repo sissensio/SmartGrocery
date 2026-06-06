@@ -2512,8 +2512,11 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             val barcode = item.barcode
             val price = item.price ?: 0.0
             
-            // Check connection first via quick pingBackend
-            val isOnline = com.example.api.LocalBackendServiceClient.pingBackend()
+            // Check connection first via quick pingBackend with timeout protection
+            val isOnline = !isOfflineMode.value && (kotlinx.coroutines.withTimeoutOrNull(1000) {
+                com.example.api.LocalBackendServiceClient.pingBackend()
+            } ?: false)
+            
             if (!isOnline) {
                 val pending = PendingCatalogItem(
                     barcode = item.barcode,
@@ -2530,6 +2533,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                 repository.insertPendingCatalogItem(pending)
                 simulateWebSocketNotification("Rilevamento Offline: Scritto in coda locale (EAN: $barcode)!")
                 parsedShelfLabelScanResult.value = null
+                isFullScreenCameraOpen.value = false
                 return@launch
             }
             
@@ -2557,6 +2561,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                 simulateWebSocketNotification("Salvato in locale: EAN $barcode registrato a €${String.format(java.util.Locale.US, "%.2f", price)}")
             }
             parsedShelfLabelScanResult.value = null
+            isFullScreenCameraOpen.value = false
         }
     }
 
