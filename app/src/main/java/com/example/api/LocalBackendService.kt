@@ -889,6 +889,31 @@ object LocalBackendServiceClient {
             return@withContext false
         }
     }
+
+    suspend fun parseShelfLabel(ocrText: String): CatalogItemCreate? = withContext(Dispatchers.IO) {
+        lastApiError = null
+        if (!isHostConfigured()) return@withContext null
+        val url = "${getBaseUrl()}/api/v1/scan/shelflabel/parse"
+        val requestBodyMoshi = LocalScanRequest(ocrText = ocrText)
+        val adapter = moshi.adapter(LocalScanRequest::class.java)
+        val jsonRequest = adapter.toJson(requestBodyMoshi)
+        
+        val request = Request.Builder()
+            .url(url)
+            .post(jsonRequest.toRequestBody("application/json".toMediaType()))
+            .build()
+            
+        try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val rawResponse = response.body?.string() ?: return@withContext null
+                return@withContext moshi.adapter(CatalogItemCreate::class.java).fromJson(rawResponse)
+            }
+        } catch (e: Exception) {
+            lastApiError = e.localizedMessage
+            return@withContext null
+        }
+    }
     
     suspend fun submitTelemetry(token: String?, event: TelemetryEventCreate): Boolean = withContext(Dispatchers.IO) {
         if (!isHostConfigured()) return@withContext false

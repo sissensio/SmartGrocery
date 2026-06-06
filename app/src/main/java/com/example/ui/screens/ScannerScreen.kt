@@ -112,6 +112,7 @@ fun ScannerScreen(
     var showEditDateDialog by remember { mutableStateOf(false) }
     val scannedReceiptTimestamp by viewModel.scannedReceiptTimestamp.collectAsState()
     val isReceiptDateAutoDetected by viewModel.isReceiptDateAutoDetected.collectAsState()
+    val isProcessingShelfScan by viewModel.isProcessingShelfScan.collectAsState()
 
     val allStores by viewModel.allStores.collectAsState()
     val scannedReceiptLatitude by viewModel.scannedReceiptLatitude.collectAsState()
@@ -1200,6 +1201,43 @@ fun ScannerScreen(
         }
     }
 
+    if (isProcessingShelfScan) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.5f))
+                .clickable(enabled = false) {},
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(8.dp),
+                modifier = Modifier.padding(32.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        text = "Elaborazione Cartellino Scaffale...",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = "Il sistema sta interpretando l'OCR del cartellino tramite fallback offline o AI avanzata...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+
 
 
 
@@ -2036,6 +2074,30 @@ fun FullScreenCameraOverlay(
         }
     }
 
+    val parsedShelfLabelScanResult by viewModel.parsedShelfLabelScanResult.collectAsState()
+    val isProcessingShelfScan by viewModel.isProcessingShelfScan.collectAsState()
+
+    var shelfName by remember { mutableStateOf("") }
+    var shelfBrand by remember { mutableStateOf("") }
+    var shelfPrice by remember { mutableStateOf("") }
+    var shelfBarcode by remember { mutableStateOf("") }
+    var shelfCategory by remember { mutableStateOf("") }
+    var shelfUnitPrice by remember { mutableStateOf("") }
+    var shelfWeight by remember { mutableStateOf("") }
+
+    LaunchedEffect(parsedShelfLabelScanResult) {
+        val result = parsedShelfLabelScanResult
+        if (result != null) {
+            shelfName = result.name ?: ""
+            shelfBrand = result.brand ?: ""
+            shelfPrice = if (result.price != null && result.price != 0.0) String.format(Locale.US, "%.2f", result.price) else ""
+            shelfBarcode = result.barcode ?: ""
+            shelfCategory = result.category ?: "Dispensa"
+            shelfUnitPrice = result.unitPrice?.let { String.format(Locale.US, "%.2f", it) } ?: ""
+            shelfWeight = result.weight?.let { String.format(Locale.US, "%.2f", it) } ?: ""
+        }
+    }
+
     // Active shelf scanning preview and auto-sensing structures
     var activeShelfScanResult by remember { mutableStateOf<ShelfScanResult?>(null) }
     var shelfScanErrorMessage by remember { mutableStateOf<String?>(null) }
@@ -2099,12 +2161,14 @@ fun FullScreenCameraOverlay(
             viewModel.completeCameraReceiptScan(store, preset.split("\n"))
         } else {
             val barcode = sensedBarcodeText ?: ("8008040" + (100000 + (0..99999).random()).toString())
-            val price = (1..5).random() + 0.99
-            activeShelfScanResult = ShelfScanResult(
-                barcode = barcode,
-                price = price,
-                inferredName = "Prodotto Scaffale ($barcode)"
-            )
+            val ocrText = """
+                OFFERTA SPECIALE
+                Prodotto Da Scaffale Heuristics
+                PREZZO €2.99
+                AL LT €5.98
+                * $barcode *
+            """.trimIndent()
+            viewModel.processShelfLabelScan(ocrText, barcode)
             shelfScanErrorMessage = null
         }
     }
@@ -2155,66 +2219,14 @@ fun FullScreenCameraOverlay(
                                             val barcodeScanner = BarcodeScanning.getClient()
                                             barcodeScanner.process(inputImage)
                                                 .addOnSuccessListener { barcodes ->
-                                                    var barcodeFound = barcodes.firstOrNull()?.rawValue ?: sensedBarcodeText
-                                                    val textLines = textResult.split("\n")
-                                                    var priceFound: Double? = null
-                                                    
-                                                    val priceRegex = Regex("""(\d+)[,.](\d{2})""")
-                                                    val barcodeRegex = Regex("""\b\d{8,13}\b""")
-                                                    for (line in textLines) {
-                                                        priceRegex.find(line)?.let {
-                                                            priceFound = it.value.replace(",", ".").toDouble()
-                                                        }
-                                                        if (barcodeFound == null) {
-                                                            barcodeRegex.find(line)?.let {
-                                                                barcodeFound = it.value
-                                                            }
-                                                        }
-                                                    }
-                                                    
-                                                    if (priceFound != null) {
-                                                        val finalBarcode = barcodeFound ?: ("8008040" + (100000 + (0..99999).random()).toString())
-                                                        activeShelfScanResult = ShelfScanResult(
-                                                            barcode = finalBarcode,
-                                                            price = priceFound!!,
-                                                            inferredName = "Prodotto Scaffale ($finalBarcode)"
-                                                        )
-                                                        shelfScanErrorMessage = null
-                                                    } else {
-                                                        activeShelfScanResult = null
-                                                        shelfScanErrorMessage = "Nessun prezzo rilevato nell'immagine. Inquadra chiaramente l'etichetta col prezzo e riprova."
-                                                    }
+                                                    val barcodeFound = barcodes.firstOrNull()?.rawValue ?: sensedBarcodeText
+                                                    viewModel.processShelfLabelScan(textResult, barcodeFound)
+                                                    shelfScanErrorMessage = null
                                                 }
                                                 .addOnFailureListener {
-                                                    var barcodeFound = sensedBarcodeText
-                                                    val textLines = textResult.split("\n")
-                                                    var priceFound: Double? = null
-                                                    
-                                                    val priceRegex = Regex("""(\d+)[,.](\d{2})""")
-                                                    val barcodeRegex = Regex("""\b\d{8,13}\b""")
-                                                    for (line in textLines) {
-                                                        priceRegex.find(line)?.let {
-                                                            priceFound = it.value.replace(",", ".").toDouble()
-                                                        }
-                                                        if (barcodeFound == null) {
-                                                            barcodeRegex.find(line)?.let {
-                                                                barcodeFound = it.value
-                                                            }
-                                                        }
-                                                    }
-                                                    
-                                                    if (priceFound != null) {
-                                                        val finalBarcode = barcodeFound ?: ("8008040" + (100000 + (0..99999).random()).toString())
-                                                        activeShelfScanResult = ShelfScanResult(
-                                                            barcode = finalBarcode,
-                                                            price = priceFound!!,
-                                                            inferredName = "Prodotto Scaffale ($finalBarcode)"
-                                                        )
-                                                        shelfScanErrorMessage = null
-                                                    } else {
-                                                        activeShelfScanResult = null
-                                                        shelfScanErrorMessage = "Nessun prezzo o codice a barre rilevato nell'immagine. Riprova."
-                                                    }
+                                                    val barcodeFound = sensedBarcodeText
+                                                    viewModel.processShelfLabelScan(textResult, barcodeFound)
+                                                    shelfScanErrorMessage = null
                                                 }
                                         }
                                         image.close()
@@ -2850,12 +2862,12 @@ fun FullScreenCameraOverlay(
 
         // --- Success Preview Overlay Card ---
         AnimatedVisibility(
-            visible = activeShelfScanResult != null,
+            visible = parsedShelfLabelScanResult != null,
             enter = fadeIn() + scaleIn(initialScale = 0.95f),
             exit = fadeOut() + scaleOut(targetScale = 0.95f),
             modifier = Modifier.fillMaxSize()
         ) {
-            val result = activeShelfScanResult
+            val result = parsedShelfLabelScanResult
             if (result != null) {
                 Box(
                     modifier = Modifier
@@ -2873,105 +2885,170 @@ fun FullScreenCameraOverlay(
                             .wrapContentHeight()
                             .border(2.dp, SemanticGreen, RoundedCornerShape(24.dp))
                     ) {
-                        Column(
+                        LazyColumn(
                             modifier = Modifier.padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(64.dp)
-                                    .background(SemanticGreen.copy(alpha = 0.2f), CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = "Rilevamento OK",
-                                    tint = SemanticGreen,
-                                    modifier = Modifier.size(36.dp)
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .size(64.dp)
+                                        .background(SemanticGreen.copy(alpha = 0.2f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = "Rilevamento OK",
+                                        tint = SemanticGreen,
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                }
+                            }
+
+                            item {
+                                Text(
+                                    text = "CONFERMA DETTAGLI CARTELLINO",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = SemanticGreen,
+                                    textAlign = TextAlign.Center
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            Text(
-                                text = "ETICHETTA RILEVATA CORRETTAMENTE",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = SemanticGreen,
-                                textAlign = TextAlign.Center
-                            )
-
-                            Spacer(modifier = Modifier.height(20.dp))
-
-                            // Details Box
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(MaterialTheme.colorScheme.background, RoundedCornerShape(12.dp))
-                                    .padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Codice EAN:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(result.barcode, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                }
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Prezzo Rilevato:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("€${String.format(Locale.US, "%.2f", result.price)}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                }
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text("Etichetta Catalogo:", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(result.inferredName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                            if (shelfBarcode.isBlank()) {
+                                item {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(Color(0xFFFFF9C4), RoundedCornerShape(8.dp))
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Warning,
+                                            contentDescription = "No Barcode Warning",
+                                            tint = Color(0xFFF57F17),
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Attenzione: Codice a barre mancante! Evita di inserire dati a mano fittizi.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color(0xFF5D4037),
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(24.dp))
+                            item {
+                                OutlinedTextField(
+                                    value = shelfName,
+                                    onValueChange = { shelfName = it },
+                                    label = { Text("Nome Prodotto") },
+                                    modifier = Modifier.fillMaxWidth().testTag("edit_shelf_name")
+                                )
+                            }
 
-                            // Action Buttons
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                OutlinedButton(
-                                    onClick = {
-                                        // Discard and retry instantly
-                                        activeShelfScanResult = null
-                                    },
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                    shape = RoundedCornerShape(20.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Scarta e Riprova", style = MaterialTheme.typography.labelMedium)
-                                }
+                            item {
+                                OutlinedTextField(
+                                    value = shelfBrand,
+                                    onValueChange = { shelfBrand = it },
+                                    label = { Text("Marca") },
+                                    modifier = Modifier.fillMaxWidth().testTag("edit_shelf_brand")
+                                )
+                            }
 
-                                Button(
-                                    onClick = {
-                                        // Commit to VM and reset
-                                        viewModel.completeCameraShelfScan(result.barcode, result.price)
-                                        activeShelfScanResult = null
-                                        successToastText = "Scaffale AR: EAN ${result.barcode} importato con successo."
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                    shape = RoundedCornerShape(20.dp),
-                                    modifier = Modifier.weight(1f)
+                            item {
+                                OutlinedTextField(
+                                    value = shelfPrice,
+                                    onValueChange = { shelfPrice = it },
+                                    label = { Text("Prezzo (€)") },
+                                    modifier = Modifier.fillMaxWidth().testTag("edit_shelf_price")
+                                )
+                            }
+
+                            item {
+                                OutlinedTextField(
+                                    value = shelfBarcode,
+                                    onValueChange = { shelfBarcode = it },
+                                    label = { Text("Codice a Barre (EAN)") },
+                                    modifier = Modifier.fillMaxWidth().testTag("edit_shelf_barcode")
+                                )
+                            }
+
+                            item {
+                                OutlinedTextField(
+                                    value = shelfCategory,
+                                    onValueChange = { shelfCategory = it },
+                                    label = { Text("Categoria") },
+                                    modifier = Modifier.fillMaxWidth().testTag("edit_shelf_category")
+                                )
+                            }
+
+                            item {
+                                OutlinedTextField(
+                                    value = shelfUnitPrice,
+                                    onValueChange = { shelfUnitPrice = it },
+                                    label = { Text("Prezzo Unitario al KG/LT") },
+                                    modifier = Modifier.fillMaxWidth().testTag("edit_shelf_unit_price")
+                                )
+                            }
+
+                            item {
+                                OutlinedTextField(
+                                    value = shelfWeight,
+                                    onValueChange = { shelfWeight = it },
+                                    label = { Text("Peso/Volume (KG/LT)") },
+                                    modifier = Modifier.fillMaxWidth().testTag("edit_shelf_weight")
+                                )
+                            }
+
+                            item {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
-                                    Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Accetta e Salva", style = MaterialTheme.typography.labelMedium)
+                                    OutlinedButton(
+                                        onClick = {
+                                            viewModel.parsedShelfLabelScanResult.value = null
+                                        },
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                        shape = RoundedCornerShape(20.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Scarta", style = MaterialTheme.typography.labelMedium)
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            val finalPrice = shelfPrice.replace(",", ".").toDoubleOrNull() ?: 0.0
+                                            val finalUnitPrice = shelfUnitPrice.replace(",", ".").toDoubleOrNull()
+                                            val finalWeight = shelfWeight.replace(",", ".").toDoubleOrNull()
+                                            val finalItem = result.copy(
+                                                name = shelfName,
+                                                brand = shelfBrand.ifBlank { null },
+                                                price = finalPrice,
+                                                barcode = shelfBarcode,
+                                                category = shelfCategory,
+                                                unitPrice = finalUnitPrice,
+                                                weight = finalWeight
+                                            )
+                                            viewModel.completeCameraShelfScan(finalItem)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                        shape = RoundedCornerShape(20.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Salva", style = MaterialTheme.typography.labelMedium)
+                                    }
                                 }
                             }
                         }

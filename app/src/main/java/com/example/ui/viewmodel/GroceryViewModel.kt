@@ -165,6 +165,9 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
     val isAnalyticsLoading = MutableStateFlow(false)
     val analyticsError = MutableStateFlow<String?>(null)
 
+    val parsedShelfLabelScanResult = MutableStateFlow<com.example.api.CatalogItemCreate?>(null)
+    val isProcessingShelfScan = MutableStateFlow(false)
+
     fun loadAnalytics(days: Int = 30) {
         viewModelScope.launch {
             isAnalyticsLoading.value = true
@@ -2298,26 +2301,108 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun completeCameraShelfScan(barcode: String, price: Double) {
+    fun parseShelfLabelHeuristicsFallback(ocrText: String): com.example.api.CatalogItemCreate {
+        val lines = ocrText.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
+        var priceVal: Double? = null
+        var unitPriceVal: Double? = null
+        var weightVal: Double? = null
+        var barcodeVal = ""
+        var discountLabelVal: String? = null
+        var productNameVal = "Prodotto Scaffale"
+        val pricePattern = Regex("""\b\d+[,.]\d{2}\b""")
+        val barcodePattern = Regex("""\b\d{8,13}\b""")
+
+        for (line in lines) {
+            val upperLine = line.uppercase()
+            if (line.length > 3 && !line.matches(Regex("""[\d\s.,/*+-]+""")) && !listOf("SOLO", "OFFERTA", "SCONTO", "PREZZO").any { upperLine.contains(it) }) {
+                productNameVal = line
+                break
+            }
+        }
+
+        for (line in lines) {
+            val upperLine = line.uppercase()
+            // Estrazione EAN/Barcode
+            if (barcodeVal.isEmpty()) {
+                val matchBar = barcodePattern.find(line)
+                if (matchBar != null) barcodeVal = matchBar.value
+                else if (line.contains("*")) {
+                    Regex("""\*(\d+)\*""").find(line)?.let { barcodeVal = it.groupValues[1] }
+                }
+            }
+            // Estrazione Sconto
+            if (listOf("SOLO", "OFFERTA", "PREZZO BASSO", "SCONTO").any { upperLine.contains(it) }) {
+                if (discountLabelVal == null) discountLabelVal = line
+            }
+            // Estrazione Prezzi (saltando righe che indicano risparmi "RISPARM")
+            if (!listOf("RISPARMI", "RISPARMIO", "RISPARMIA").any { upperLine.contains(it) }) {
+                pricePattern.findAll(line).forEach { match ->
+                    val valDouble = match.value.replace(",", ".").toDoubleOrNull() ?: return@forEach
+                    if (listOf("AL LT", "AL KG", "AL PZ", "AL LITRO", "AL CHILO").any { upperLine.contains(it) }) {
+                        unitPriceVal = valDouble
+                    } else {
+                        if (priceVal == null || valDouble < priceVal!!) priceVal = valDouble
+                    }
+                }
+            }
+            // Estrazione Peso/Volume (con precedenza a LT per evitare letture parziali da ML)
+            val matchLt = Regex("""\bLT\s*(\d+[,.]?\d*)\b""").find(upperLine) ?: Regex("""\b(\d+[,.]?\d*)\s*LT\b""").find(upperLine)
+            if (matchLt != null) {
+                weightVal = matchLt.groupValues[1].replace(",", ".").toDoubleOrNull()
+            } else if (weightVal == null) {
+                val matchCl = Regex("""\bCL\s*(\d+)\b""").find(upperLine) ?: Regex("""\b(\d+)\s*CL\b""").find(upperLine)
+                if (matchCl != null) {
+                    weightVal = (matchCl.groupValues[1].toDoubleOrNull() ?: 0.0) / 100.0
+                } else {
+                    val matchMl = Regex("""\bML\s*(\d+)\b""").find(upperLine) ?: Regex("""\b(\d+)\s*ML\b""").find(upperLine)
+                    if (matchMl != null) {
+                        weightVal = (matchMl.groupValues[1].toDoubleOrNull() ?: 0.0) / 1000.0
+                    }
+                }
+            }
+        }
+        return com.example.api.CatalogItemCreate(barcodeVal, productNameVal, "Generico", "Dispensa", priceVal ?: 0.0, unitPriceVal, weightVal, discountLabelVal, "Supermercato", null)
+    }
+
+    fun processShelfLabelScan(ocrRawText: String, barcodeFromScanner: String?) {
+        viewModelScope.launch {
+            isProcessingShelfScan.value = true
+            try {
+                val useLocalServer = com.example.BuildConfig.SEND_OCR_TO_BACKEND
+                var parsedItem: com.example.api.CatalogItemCreate? = null
+                if (useLocalServer) {
+                    parsedItem = com.example.api.LocalBackendServiceClient.parseShelfLabel(ocrRawText)
+                } else {
+                    parsedItem = com.example.api.GeminiServiceClient.parseShelfLabelText(ocrRawText)
+                }
+                if (parsedItem == null) {
+                    parsedItem = parseShelfLabelHeuristicsFallback(ocrRawText)
+                }
+                if (!barcodeFromScanner.isNullOrBlank()) {
+                    parsedItem = parsedItem.copy(barcode = barcodeFromScanner)
+                }
+                parsedShelfLabelScanResult.value = parsedItem
+            } catch (e: Exception) {
+                var currentHeuristic = parseShelfLabelHeuristicsFallback(ocrRawText)
+                if (!barcodeFromScanner.isNullOrBlank()) {
+                    currentHeuristic = currentHeuristic.copy(barcode = barcodeFromScanner)
+                }
+                parsedShelfLabelScanResult.value = currentHeuristic
+            } finally {
+                isProcessingShelfScan.value = false
+            }
+        }
+    }
+
+    fun completeCameraShelfScan(item: com.example.api.CatalogItemCreate) {
         viewModelScope.launch {
             val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
             val deviceId = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("device_uuid", null) ?: java.util.UUID.randomUUID().toString()
             
-            val item = com.example.api.CatalogItemCreate(
-                barcode = barcode,
-                name = "Prodotto Scaffale ($barcode)",
-                brand = null,
-                category = null,
-                price = price,
-                unitPrice = null,
-                weight = null,
-                discountLabel = null,
-                storeName = "AR Rilevamento",
-                vatNumber = null
-            )
-            
             val ok = com.example.api.LocalBackendServiceClient.submitShelfLabel(token, deviceId, item)
             
+            val barcode = item.barcode
+            val price = item.price ?: 0.0
             if (ok) {
                 simulateWebSocketNotification("Assistente Scaffale AR: EAN $barcode registrato a €${String.format(java.util.Locale.US, "%.2f", price)}")
                 fetchComparison(barcode, null)
@@ -2325,11 +2410,11 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             } else {
                 // Fallback to local
                 val gItem = GroceryItem(
-                    name = "Prodotto Scaffale ($barcode)",
-                    brand = "Rilevamento AR",
+                    name = item.name,
+                    brand = item.brand ?: "Rilevamento AR",
                     price = price,
-                    unitPrice = price,
-                    category = "Dispensa",
+                    unitPrice = item.unitPrice ?: price,
+                    category = item.category ?: "Dispensa",
                     isShared = true,
                     isPurchased = false,
                     urgencyColor = "GREEN",
@@ -2339,6 +2424,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                 repository.insertItem(gItem)
                 simulateWebSocketNotification("Salvato in locale: EAN $barcode registrato a €${String.format(java.util.Locale.US, "%.2f", price)}")
             }
+            parsedShelfLabelScanResult.value = null
         }
     }
 

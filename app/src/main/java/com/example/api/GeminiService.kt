@@ -147,6 +147,33 @@ data class ParsingReceiptResultJson(
     }
 }
 
+@JsonClass(generateAdapter = true)
+data class CatalogItemCreateJson(
+    @Json(name = "barcode") val barcode: String? = null,
+    @Json(name = "name") val name: String? = null,
+    @Json(name = "brand") val brand: String? = null,
+    @Json(name = "category") val category: String? = null,
+    @Json(name = "price") val price: Double? = null,
+    @Json(name = "unit_price") val unitPrice: Double? = null,
+    @Json(name = "weight") val weight: Double? = null,
+    @Json(name = "discount_label") val discountLabel: String? = null,
+    @Json(name = "store_name") val storeName: String? = null,
+    @Json(name = "vat_number") val vatNumber: String? = null
+) {
+    fun toCatalogItemCreate() = CatalogItemCreate(
+        barcode = barcode ?: "",
+        name = name ?: "Articolo Scaffale",
+        brand = brand ?: "Generico",
+        category = category ?: "Dispensa",
+        price = price ?: 0.0,
+        unitPrice = unitPrice,
+        weight = weight,
+        discountLabel = discountLabel,
+        storeName = storeName ?: "Supermercato",
+        vatNumber = vatNumber
+    )
+}
+
 object GeminiServiceClient {
     private const val TAG = "GeminiServiceClient"
     private const val MODEL = "gemini-3.5-flash"
@@ -293,6 +320,64 @@ object GeminiServiceClient {
         } catch (e: Exception) {
             lastApiError = "Errore di elaborazione/parsing: ${e.localizedMessage}"
             Log.e(TAG, "JSON parsing error on Gemini response", e)
+            return@withContext null
+        }
+    }
+
+    suspend fun parseShelfLabelText(ocrText: String): CatalogItemCreate? = withContext(Dispatchers.IO) {
+        lastApiError = null
+        if (!isKeyConfigured()) {
+            lastApiError = "Chiave non configurata o valore placeholder."
+            return@withContext null
+        }
+        val systemPrompt = """
+            Sei l'assistente OCR intelligente di SmartGrocery Manager per i supermercati Italiani.
+            Estrai dal testo del cartellino: barcode (pulisci asterischi es. *511451* -> 511451), name, brand, category, price (il più basso se in offerta), unit_price, weight (in KG o Litri, es: CL 50 -> 0.5), discount_label, store_name, vat_number. Restituisci SOLO un JSON corrispondente a CatalogItemCreateJson.
+        """.trimIndent()
+
+        val requestBodyMoshi = GeminiRequest(
+            contents = listOf(GeminiContent(parts = listOf(GeminiPart(text = ocrText)))),
+            generationConfig = GeminiConfig(
+                responseMimeType = "application/json",
+                temperature = 0.1
+            ),
+            systemInstruction = GeminiContent(parts = listOf(GeminiPart(text = systemPrompt)))
+        )
+
+        val adapter = moshi.adapter(GeminiRequest::class.java)
+        val jsonRequest = adapter.toJson(requestBodyMoshi)
+
+        val url = "$BASE_URL?key=${BuildConfig.GEMINI_API_KEY}"
+        val request = Request.Builder()
+            .url(url)
+            .post(jsonRequest.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val errBody = response.body?.string() ?: ""
+                    lastApiError = "HTTP ${response.code}: $errBody"
+                    return@withContext null
+                }
+                val rawResponse = response.body?.string() ?: return@withContext null
+                val responseAdapter = moshi.adapter(GeminiResponse::class.java)
+                val geminiRes = responseAdapter.fromJson(rawResponse)
+                
+                val resultText = geminiRes?.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                if (resultText == null) {
+                    lastApiError = "La risposta Gemini non contiene candidati di testo validi."
+                    return@withContext null
+                }
+                
+                Log.d(TAG, "Gemini shelf label parsing output: $resultText")
+
+                val resultAdapter = moshi.adapter(CatalogItemCreateJson::class.java)
+                return@withContext resultAdapter.fromJson(resultText)?.toCatalogItemCreate()
+            }
+        } catch (e: Exception) {
+            lastApiError = e.localizedMessage
+            Log.e(TAG, "Error in parseShelfLabelText", e)
             return@withContext null
         }
     }
