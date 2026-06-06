@@ -46,7 +46,7 @@ class ExampleRobolectricTest {
     val viewModel = GroceryViewModel(app)
     composeTestRule.setContent {
       MyApplicationTheme {
-        HomeScreen(viewModel = viewModel, onNavigateToScanner = {})
+        HomeScreen(viewModel = viewModel, onNavigateToScanner = {}, onNavigateToReport = {})
       }
     }
     composeTestRule.waitForIdle()

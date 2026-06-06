@@ -2364,21 +2364,42 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         return com.example.api.CatalogItemCreate(barcodeVal, productNameVal, "Generico", "Dispensa", priceVal ?: 0.0, unitPriceVal, weightVal, discountLabelVal, "Supermercato", null)
     }
 
+    private fun isInternalStoreBarcode(barcode: String): Boolean {
+        val trimmed = barcode.trim()
+        if (trimmed.length < 2) return false
+        val prefix = trimmed.take(2)
+        return prefix in "20".."29"
+    }
+
+    private fun isRealManufacturerBarcode(barcode: String): Boolean {
+        val trimmed = barcode.trim()
+        if (!trimmed.matches(Regex("""\d{8,13}"""))) return false
+        return !isInternalStoreBarcode(trimmed)
+    }
+
     fun processShelfLabelScan(ocrRawText: String, barcodeFromScanner: String?) {
         viewModelScope.launch {
             isProcessingShelfScan.value = true
             try {
                 val localItem = parseShelfLabelHeuristicsFallback(ocrRawText)
-                var finalBarcode = barcodeFromScanner?.trim() ?: ""
-                if (finalBarcode.isBlank()) {
-                    finalBarcode = localItem.barcode
+                val scannedBarcode = barcodeFromScanner?.trim() ?: ""
+                val ocrBarcode = localItem.barcode.trim()
+
+                // Rule 1: Real manufacturer EAN-13/8 barcodes parsed from OCR take precedence over store-specific internal barcodes (local prefixes 20-29).
+                val finalBarcode = if (isInternalStoreBarcode(scannedBarcode) && isRealManufacturerBarcode(ocrBarcode)) {
+                    ocrBarcode
+                } else if (scannedBarcode.isNotBlank()) {
+                    scannedBarcode
+                } else {
+                    ocrBarcode
                 }
 
                 var parsedItem: com.example.api.CatalogItemCreate? = null
 
-                // 1. Priorità: Interrogazione diretta a Open Food Facts per barcode "reali"
+                // 1. Priorità: Interrogazione diretta a Open Food Facts per barcode "reali" (skipping store-specific internal barcodes)
                 val isValidEan = finalBarcode.isNotEmpty() && finalBarcode.matches(Regex("""\d{8,13}"""))
-                if (isValidEan) {
+                val isInternal = isInternalStoreBarcode(finalBarcode)
+                if (isValidEan && !isInternal) {
                     try {
                         val offItem = com.example.api.OffServiceClient.getProductDetails(finalBarcode)
                         if (offItem != null) {
@@ -2414,15 +2435,34 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                     parsedItem = localItem
                 }
 
-                if (!finalBarcode.isNullOrBlank()) {
-                    parsedItem = parsedItem.copy(barcode = finalBarcode)
+                // Rule 2: Downstream resolved real barcodes are not overwritten by scanner internal barcodes at the end of the scan flow.
+                if (parsedItem != null) {
+                    val resolvedBarcode = parsedItem.barcode ?: ""
+                    if (isRealManufacturerBarcode(resolvedBarcode)) {
+                        if (!isInternalStoreBarcode(finalBarcode) && finalBarcode.isNotBlank()) {
+                            parsedItem = parsedItem.copy(barcode = finalBarcode)
+                        }
+                    } else {
+                        if (finalBarcode.isNotBlank()) {
+                            parsedItem = parsedItem.copy(barcode = finalBarcode)
+                        }
+                    }
                 }
 
                 parsedShelfLabelScanResult.value = parsedItem
             } catch (e: Exception) {
                 var currentHeuristic = parseShelfLabelHeuristicsFallback(ocrRawText)
-                if (!barcodeFromScanner.isNullOrBlank()) {
-                    currentHeuristic = currentHeuristic.copy(barcode = barcodeFromScanner)
+                val scannedBarcode = barcodeFromScanner?.trim() ?: ""
+                val ocrBarcode = currentHeuristic.barcode.trim()
+                val fallbackBarcode = if (isInternalStoreBarcode(scannedBarcode) && isRealManufacturerBarcode(ocrBarcode)) {
+                    ocrBarcode
+                } else if (scannedBarcode.isNotBlank()) {
+                    scannedBarcode
+                } else {
+                    ocrBarcode
+                }
+                if (fallbackBarcode.isNotBlank()) {
+                    currentHeuristic = currentHeuristic.copy(barcode = fallbackBarcode)
                 }
                 parsedShelfLabelScanResult.value = currentHeuristic
             } finally {
