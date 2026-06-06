@@ -235,7 +235,9 @@ data class CatalogPriceComparisonItem(
     @Json(name = "unit_price") val unitPrice: Double?,
     @Json(name = "discount_label") val discountLabel: String?,
     @Json(name = "scanned_by") val scannedBy: String,
-    @Json(name = "scanned_at") val scannedAt: String
+    @Json(name = "scanned_at") val scannedAt: String,
+    @Json(name = "catalog_item_id") val catalogItemId: Int? = null,
+    @Json(name = "id") val id: Int? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -243,7 +245,9 @@ data class CatalogItemCompareResponse(
     @Json(name = "product_name") val productName: String,
     @Json(name = "barcode") val barcode: String?,
     @Json(name = "brand") val brand: String?,
-    @Json(name = "prices") val prices: List<CatalogPriceComparisonItem>
+    @Json(name = "prices") val prices: List<CatalogPriceComparisonItem>,
+    @Json(name = "category") val category: String? = null,
+    @Json(name = "weight") val weight: Double? = null
 )
 
 @JsonClass(generateAdapter = true)
@@ -883,6 +887,37 @@ object LocalBackendServiceClient {
         if (token != null) reqBuilder.header("Authorization", "Bearer $token")
         
         val request = reqBuilder.post(json.toRequestBody("application/json".toMediaType())).build()
+        try {
+            client.newCall(request).execute().use { return@withContext it.isSuccessful }
+        } catch (e: Exception) {
+            return@withContext false
+        }
+    }
+
+    suspend fun updateCatalogItem(token: String?, deviceUuid: String, itemId: Int, item: CatalogItemCreate): Boolean = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext false
+        val url = "${getBaseUrl()}/api/v1/scan/catalog/$itemId"
+        val json = moshi.adapter(CatalogItemCreate::class.java).toJson(item)
+        
+        val reqBuilder = Request.Builder().url(url).header("X-Device-ID", deviceUuid)
+        if (token != null) reqBuilder.header("Authorization", "Bearer $token")
+        
+        val request = reqBuilder.put(json.toRequestBody("application/json".toMediaType())).build()
+        try {
+            client.newCall(request).execute().use { return@withContext it.isSuccessful }
+        } catch (e: Exception) {
+            return@withContext false
+        }
+    }
+
+    suspend fun deleteCatalogItem(token: String?, itemId: Int): Boolean = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext false
+        val url = "${getBaseUrl()}/api/v1/scan/catalog/$itemId"
+        
+        val reqBuilder = Request.Builder().url(url)
+        if (token != null) reqBuilder.header("Authorization", "Bearer $token")
+        
+        val request = reqBuilder.delete().build()
         try {
             client.newCall(request).execute().use { return@withContext it.isSuccessful }
         } catch (e: Exception) {

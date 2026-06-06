@@ -26,6 +26,13 @@ class GroceryRepository(private val dao: GroceryDao) {
     suspend fun deletePendingReceipt(receipt: PendingReceipt) = dao.deletePendingReceipt(receipt)
     suspend fun deletePendingReceiptById(id: Int) = dao.deletePendingReceiptById(id)
 
+    // --- Pending Catalog Items ---
+    val pendingCatalogItems: Flow<List<PendingCatalogItem>> = dao.getPendingCatalogItemsFlow()
+    suspend fun getAllPendingCatalogItems(): List<PendingCatalogItem> = dao.getAllPendingCatalogItems()
+    suspend fun insertPendingCatalogItem(item: PendingCatalogItem): Long = dao.insertPendingCatalogItem(item)
+    suspend fun deletePendingCatalogItem(item: PendingCatalogItem) = dao.deletePendingCatalogItem(item)
+    suspend fun deletePendingCatalogItemById(id: Int) = dao.deletePendingCatalogItemById(id)
+
     // --- Ledger Entries ---
     val ledgerEntries: Flow<List<LedgerEntry>> = dao.getLedgerEntriesFlow()
 

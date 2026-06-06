@@ -834,6 +834,8 @@ fun SmartShoppingTab(viewModel: GroceryViewModel) {
     }
 
     var editingItem by remember { mutableStateOf<com.example.data.GroceryItem?>(null) }
+    var editingCatalogItem by remember { mutableStateOf<com.example.api.CatalogPriceComparisonItem?>(null) }
+    var confirmDeleteCatalogItem by remember { mutableStateOf<com.example.api.CatalogPriceComparisonItem?>(null) }
     
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -1016,7 +1018,42 @@ fun SmartShoppingTab(viewModel: GroceryViewModel) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(comparison!!.productName, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                            if (comparison!!.brand != null) Text(comparison!!.brand!!, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
+                            if (comparison!!.brand != null) {
+                                Text(comparison!!.brand!!, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.secondary)
+                            }
+                            
+                            // Visualizzazione Categoria e Peso nella parte superiore
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(top = 4.dp)
+                            ) {
+                                comparison!!.category?.takeIf { it.isNotBlank() }?.let { cat ->
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text(
+                                            text = cat,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                                comparison!!.weight?.takeIf { it > 0.0 }?.let { w ->
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text(
+                                            text = "${w}g/kg",
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.secondary
+                                        )
+                                    }
+                                }
+                            }
                         }
                         IconButton(onClick = { viewModel.clearComparison() }) {
                             Icon(Icons.Default.Close, contentDescription = "Chiudi")
@@ -1037,20 +1074,61 @@ fun SmartShoppingTab(viewModel: GroceryViewModel) {
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Column(modifier = Modifier.padding(16.dp)) {
-                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text(priceItem.storeName, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                                            val priceStr = String.format(java.util.Locale.US, "%.2f€", priceItem.price)
-                                            Text(priceStr, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, color = if (isBestPrice) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(priceItem.storeName, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                                if (isBestPrice) {
+                                                    Text("★ Miglior Prezzo", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                                }
+                                                if (priceItem.discountLabel != null) {
+                                                    Text(priceItem.discountLabel, style = MaterialTheme.typography.labelSmall, color = com.example.ui.theme.SemanticRed)
+                                                }
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                val timeStr = priceItem.scannedAt.substringBefore("T") // fast format
+                                                Text("Rilevato da ${priceItem.scannedBy} il $timeStr", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                                            }
+                                            
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                val priceStr = String.format(java.util.Locale.US, "%.2f€", priceItem.price)
+                                                Text(
+                                                    text = priceStr,
+                                                    fontWeight = FontWeight.Bold,
+                                                    style = MaterialTheme.typography.titleLarge,
+                                                    color = if (isBestPrice) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                
+                                                val itemId = priceItem.catalogItemId ?: priceItem.id
+                                                if (itemId != null) {
+                                                    IconButton(
+                                                        onClick = { editingCatalogItem = priceItem },
+                                                        modifier = Modifier.size(36.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Edit,
+                                                            contentDescription = "Modifica",
+                                                            tint = MaterialTheme.colorScheme.primary,
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
+                                                    }
+                                                    IconButton(
+                                                        onClick = { confirmDeleteCatalogItem = priceItem },
+                                                        modifier = Modifier.size(36.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Delete,
+                                                            contentDescription = "Elimina",
+                                                            tint = MaterialTheme.colorScheme.error,
+                                                            modifier = Modifier.size(18.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
                                         }
-                                        if (isBestPrice) {
-                                            Text("★ Miglior Prezzo", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                                        }
-                                        if (priceItem.discountLabel != null) {
-                                            Text(priceItem.discountLabel, style = MaterialTheme.typography.labelSmall, color = com.example.ui.theme.SemanticRed)
-                                        }
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        val timeStr = priceItem.scannedAt.substringBefore("T") // fast format
-                                        Text("Rilevato da ${priceItem.scannedBy} il $timeStr", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
                                     }
                                 }
                             }
@@ -1059,5 +1137,114 @@ fun SmartShoppingTab(viewModel: GroceryViewModel) {
                 }
             }
         }
+    }
+
+    if (confirmDeleteCatalogItem != null) {
+        val target = confirmDeleteCatalogItem!!
+        val itemId = target.catalogItemId ?: target.id
+        AlertDialog(
+            onDismissRequest = { confirmDeleteCatalogItem = null },
+            title = { Text("Elimina Voce Listino") },
+            text = { Text("Sei sicuro di voler eliminare l'offerta di ${target.storeName} al prezzo di €${String.format(java.util.Locale.US, "%.2f", target.price)}?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (itemId != null) {
+                            viewModel.deleteCatalogItem(itemId, comparison?.barcode)
+                        }
+                        confirmDeleteCatalogItem = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Elimina")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDeleteCatalogItem = null }) {
+                    Text("Annulla")
+                }
+            }
+        )
+    }
+
+    if (editingCatalogItem != null) {
+        val target = editingCatalogItem!!
+        val itemId = target.catalogItemId ?: target.id
+        var editPriceStr by remember(target) { mutableStateOf(target.price.toString()) }
+        var editBrand by remember(target) { mutableStateOf(comparison?.brand ?: "") }
+        var editCategory by remember(target) { mutableStateOf(comparison?.category ?: "") }
+        var editWeightStr by remember(target) { mutableStateOf(comparison?.weight?.toString() ?: "") }
+        var editDiscountLabel by remember(target) { mutableStateOf(target.discountLabel ?: "") }
+
+        AlertDialog(
+            onDismissRequest = { editingCatalogItem = null },
+            title = { Text("Modifica Voce Listino") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Negozio: ${target.storeName}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                    OutlinedTextField(
+                        value = editPriceStr,
+                        onValueChange = { editPriceStr = it },
+                        label = { Text("Prezzo (€)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = editBrand,
+                        onValueChange = { editBrand = it },
+                        label = { Text("Marca") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = editCategory,
+                        onValueChange = { editCategory = it },
+                        label = { Text("Categoria") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = editWeightStr,
+                        onValueChange = { editWeightStr = it },
+                        label = { Text("Peso / Volume") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = editDiscountLabel,
+                        onValueChange = { editDiscountLabel = it },
+                        label = { Text("Etichetta Sconto (es. -20%)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val parsedPrice = editPriceStr.replace(",", ".").toDoubleOrNull() ?: target.price
+                        val parsedWeight = editWeightStr.replace(",", ".").toDoubleOrNull()
+                        val updateDto = com.example.api.CatalogItemCreate(
+                            barcode = comparison?.barcode ?: "",
+                            name = comparison?.productName ?: "",
+                            brand = editBrand.ifBlank { null },
+                            category = editCategory.ifBlank { null },
+                            price = parsedPrice,
+                            unitPrice = target.unitPrice,
+                            weight = parsedWeight,
+                            discountLabel = editDiscountLabel.ifBlank { null },
+                            storeName = target.storeName,
+                            vatNumber = null
+                        )
+                        if (itemId != null) {
+                            viewModel.updateCatalogItem(itemId, updateDto, comparison?.barcode)
+                        }
+                        editingCatalogItem = null
+                    }
+                ) {
+                    Text("Salva")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingCatalogItem = null }) {
+                    Text("Annulla")
+                }
+            }
+        )
     }
 }

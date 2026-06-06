@@ -433,6 +433,39 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
     fun clearComparison() {
         selectedComparison.value = null
     }
+
+    fun updateCatalogItem(itemId: Int, item: com.example.api.CatalogItemCreate, barcodeToRefresh: String?, onComplete: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
+            val deviceId = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("device_uuid", null) ?: java.util.UUID.randomUUID().toString()
+            val success = com.example.api.LocalBackendServiceClient.updateCatalogItem(token, deviceId, itemId, item)
+            if (success) {
+                simulateWebSocketNotification("Listino prezzi aggiornato!")
+                if (barcodeToRefresh != null) {
+                    fetchComparison(barcodeToRefresh, null)
+                }
+            } else {
+                simulateWebSocketNotification("Errore durante l'aggiornamento del listino prezzi.")
+            }
+            onComplete(success)
+        }
+    }
+
+    fun deleteCatalogItem(itemId: Int, barcodeToRefresh: String?, onComplete: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
+            val success = com.example.api.LocalBackendServiceClient.deleteCatalogItem(token, itemId)
+            if (success) {
+                simulateWebSocketNotification("Articolo rimosso dal listino prezzi!")
+                if (barcodeToRefresh != null) {
+                    fetchComparison(barcodeToRefresh, null)
+                }
+            } else {
+                simulateWebSocketNotification("Errore durante la rimozione del listino prezzi.")
+            }
+            onComplete(success)
+        }
+    }
     
     val requestTabSwitch = MutableStateFlow<Int?>(null)
 
@@ -2476,10 +2509,32 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
             val deviceId = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("device_uuid", null) ?: java.util.UUID.randomUUID().toString()
             
-            val ok = com.example.api.LocalBackendServiceClient.submitShelfLabel(token, deviceId, item)
-            
             val barcode = item.barcode
             val price = item.price ?: 0.0
+            
+            // Check connection first via quick pingBackend
+            val isOnline = com.example.api.LocalBackendServiceClient.pingBackend()
+            if (!isOnline) {
+                val pending = PendingCatalogItem(
+                    barcode = item.barcode,
+                    name = item.name,
+                    brand = item.brand,
+                    category = item.category,
+                    price = item.price,
+                    unitPrice = item.unitPrice,
+                    weight = item.weight,
+                    discountLabel = item.discountLabel,
+                    storeName = item.storeName,
+                    vatNumber = item.vatNumber
+                )
+                repository.insertPendingCatalogItem(pending)
+                simulateWebSocketNotification("Rilevamento Offline: Scritto in coda locale (EAN: $barcode)!")
+                parsedShelfLabelScanResult.value = null
+                return@launch
+            }
+            
+            val ok = com.example.api.LocalBackendServiceClient.submitShelfLabel(token, deviceId, item)
+            
             if (ok) {
                 simulateWebSocketNotification("Assistente Scaffale AR: EAN $barcode registrato a €${String.format(java.util.Locale.US, "%.2f", price)}")
                 fetchComparison(barcode, null)

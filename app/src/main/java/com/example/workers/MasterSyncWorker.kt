@@ -9,6 +9,7 @@ import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.example.data.AppDatabase
+import com.example.data.PendingCatalogItem
 import com.example.api.LocalBackendServiceClient
 import com.example.api.LedgerItemDto
 import com.example.api.LedgerSubmitRequest
@@ -38,6 +39,37 @@ class MasterSyncWorker(
             if (token.isNullOrBlank()) {
                 Log.d("MasterSyncWorker", "No auth token found, aborting sync")
                 return@withContext Result.success()
+            }
+
+            // Sync offline-queued PendingCatalogItems
+            try {
+                val pendingCatalogItems = dao.getAllPendingCatalogItems()
+                if (pendingCatalogItems.isNotEmpty()) {
+                    Log.d("MasterSyncWorker", "Found ${pendingCatalogItems.size} pending catalog items to sync")
+                    for (pending in pendingCatalogItems) {
+                        val createDto = com.example.api.CatalogItemCreate(
+                            barcode = pending.barcode,
+                            name = pending.name,
+                            brand = pending.brand,
+                            category = pending.category,
+                            price = pending.price,
+                            unitPrice = pending.unitPrice,
+                            weight = pending.weight,
+                            discountLabel = pending.discountLabel,
+                            storeName = pending.storeName,
+                            vatNumber = pending.vatNumber
+                        )
+                        val success = LocalBackendServiceClient.submitShelfLabel(token, deviceUuid, createDto)
+                        if (success) {
+                            dao.deletePendingCatalogItem(pending)
+                            Log.d("MasterSyncWorker", "Successfully synced pending catalog item: ${pending.barcode}")
+                        } else {
+                            Log.e("MasterSyncWorker", "Failed to sync pending catalog item: ${pending.barcode}")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MasterSyncWorker", "Error syncing pending catalog items", e)
             }
 
             // Build payload

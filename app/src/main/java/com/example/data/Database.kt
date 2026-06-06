@@ -47,6 +47,22 @@ interface GroceryDao {
     @Query("DELETE FROM pending_receipts WHERE id = :id")
     suspend fun deletePendingReceiptById(id: Int)
 
+    // --- Pending Catalog Items ---
+    @Query("SELECT * FROM pending_catalog_items ORDER BY timestamp DESC")
+    fun getPendingCatalogItemsFlow(): Flow<List<PendingCatalogItem>>
+
+    @Query("SELECT * FROM pending_catalog_items")
+    suspend fun getAllPendingCatalogItems(): List<PendingCatalogItem>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPendingCatalogItem(item: PendingCatalogItem): Long
+
+    @Delete
+    suspend fun deletePendingCatalogItem(item: PendingCatalogItem)
+
+    @Query("DELETE FROM pending_catalog_items WHERE id = :id")
+    suspend fun deletePendingCatalogItemById(id: Int)
+
     // --- Ledger Entries ---
     @Query("SELECT * FROM ledger_entries ORDER BY timestamp DESC")
     fun getLedgerEntriesFlow(): Flow<List<LedgerEntry>>
@@ -147,8 +163,8 @@ interface GroceryDao {
 }
 
 @Database(
-    entities = [GroceryItem::class, PendingReceipt::class, LedgerEntry::class, StoreInfo::class, NotificationAck::class, BackendNotificationEntity::class, SpendingGroup::class, ShoppingList::class],
-    version = 14,
+    entities = [GroceryItem::class, PendingReceipt::class, LedgerEntry::class, StoreInfo::class, NotificationAck::class, BackendNotificationEntity::class, SpendingGroup::class, ShoppingList::class, PendingCatalogItem::class],
+    version = 15,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
