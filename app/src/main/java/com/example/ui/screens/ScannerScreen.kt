@@ -2916,7 +2916,17 @@ fun FullScreenCameraOverlay(
                                 )
                             }
 
-                            if (shelfBarcode.isBlank()) {
+                            val isInternalBarcode = remember(shelfBarcode) {
+                                val clean = shelfBarcode.trim()
+                                clean.length >= 2 && (
+                                    clean.startsWith("20") || clean.startsWith("21") || clean.startsWith("22") ||
+                                    clean.startsWith("23") || clean.startsWith("24") || clean.startsWith("25") ||
+                                    clean.startsWith("26") || clean.startsWith("27") || clean.startsWith("28") ||
+                                    clean.startsWith("29")
+                                )
+                            }
+
+                            if (shelfBarcode.isBlank() || isInternalBarcode) {
                                 item {
                                     Row(
                                         modifier = Modifier
@@ -2933,7 +2943,11 @@ fun FullScreenCameraOverlay(
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = "Attenzione: Codice a barre mancante! Evita di inserire dati a mano fittizi.",
+                                            text = if (shelfBarcode.isBlank()) {
+                                                "Attenzione: Codice a barre mancante! Inquadra o scansiona il codice a barre stampato sul prodotto reale sullo scaffale."
+                                            } else {
+                                                "Attenzione: Codice interno rilevato! Inquadra o scansiona il codice a barre stampato sul prodotto reale sullo scaffale."
+                                            },
                                             style = MaterialTheme.typography.bodySmall,
                                             color = Color(0xFF5D4037),
                                             fontWeight = FontWeight.Bold
