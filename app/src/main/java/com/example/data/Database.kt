@@ -47,6 +47,9 @@ interface GroceryDao {
     @Query("DELETE FROM pending_receipts WHERE id = :id")
     suspend fun deletePendingReceiptById(id: Int)
 
+    @Query("DELETE FROM pending_receipts")
+    suspend fun deleteAllPendingReceipts()
+
     // --- Pending Catalog Items ---
     @Query("SELECT * FROM pending_catalog_items ORDER BY timestamp DESC")
     fun getPendingCatalogItemsFlow(): Flow<List<PendingCatalogItem>>
@@ -160,37 +163,11 @@ interface GroceryDao {
 
     @Query("DELETE FROM shopping_lists")
     suspend fun deleteAllShoppingLists()
-
-    // --- Muted Stores ---
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertMutedStore(mute: MutedStoreLocal): Long
-
-    @Query("SELECT * FROM muted_stores WHERE isSynced = 0")
-    suspend fun getUnsyncedMutedStores(): List<MutedStoreLocal>
-
-    @Query("UPDATE muted_stores SET isSynced = 1 WHERE storeId = :storeId")
-    suspend fun markMutedStoreSynced(storeId: Int)
-
-    @Query("SELECT storeId FROM muted_stores")
-    suspend fun getAllMutedStoreIds(): List<Int>
-
-    @Query("SELECT EXISTS(SELECT 1 FROM muted_stores WHERE storeId = :storeId)")
-    suspend fun isStoreMuted(storeId: Int): Boolean
-
-    // --- Pending Store Reports ---
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertPendingStoreReport(report: PendingStoreReport): Long
-
-    @Query("SELECT * FROM pending_store_reports ORDER BY timestamp DESC")
-    suspend fun getUnsyncedStoreReports(): List<PendingStoreReport>
-
-    @Query("DELETE FROM pending_store_reports WHERE id = :id")
-    suspend fun deletePendingStoreReport(id: Int)
 }
 
 @Database(
-    entities = [GroceryItem::class, PendingReceipt::class, LedgerEntry::class, StoreInfo::class, NotificationAck::class, BackendNotificationEntity::class, SpendingGroup::class, ShoppingList::class, PendingCatalogItem::class, MutedStoreLocal::class, PendingStoreReport::class],
-    version = 16,
+    entities = [GroceryItem::class, PendingReceipt::class, LedgerEntry::class, StoreInfo::class, NotificationAck::class, BackendNotificationEntity::class, SpendingGroup::class, ShoppingList::class, PendingCatalogItem::class],
+    version = 15,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

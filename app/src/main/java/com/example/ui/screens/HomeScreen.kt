@@ -56,6 +56,7 @@ fun HomeScreen(
 
     val limitAlert by viewModel.transactionLimitAlertMessage.collectAsState()
     val activeSessions by viewModel.activeShoppingSessions.collectAsState()
+    var showClearAllPendingDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.startPollingActiveSessions()
@@ -336,14 +337,24 @@ fun HomeScreen(
                                 fontWeight = FontWeight.Bold
                             )
                         }
-                        Badge(containerColor = if (pendingBacklog.isNotEmpty()) SemanticRed else MaterialTheme.colorScheme.secondary) {
-                            Text(
-                                text = "${pendingBacklog.size}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                modifier = Modifier.padding(horizontal = 4.dp)
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (pendingBacklog.isNotEmpty()) {
+                                TextButton(
+                                    onClick = { showClearAllPendingDialog = true },
+                                    modifier = Modifier.padding(end = 8.dp)
+                                ) {
+                                    Text("Rimuovi tutti")
+                                }
+                            }
+                            Badge(containerColor = if (pendingBacklog.isNotEmpty()) SemanticRed else MaterialTheme.colorScheme.secondary) {
+                                Text(
+                                    text = "${pendingBacklog.size}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    modifier = Modifier.padding(horizontal = 4.dp)
+                                )
+                            }
                         }
                     }
 
@@ -708,6 +719,31 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    if (showClearAllPendingDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearAllPendingDialog = false },
+            title = { Text("Eliminare tutti gli scontrini?") },
+            text = { Text("Questa azione rimuoverà permanentemente tutti gli scontrini attualmente in sospeso. Continuare?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.clearAllPendingReceipts()
+                        showClearAllPendingDialog = false
+                    }
+                ) {
+                    Text("Conferma")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showClearAllPendingDialog = false }
+                ) {
+                    Text("Annulla")
+                }
+            }
+        )
     }
 }
 

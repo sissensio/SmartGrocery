@@ -51,7 +51,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                             
                             Log.d("GeofenceReceiver", "Intercettata uscita da: $storeName (storeId: $storeId). Registrato scontrino in sospeso ID: $id.")
                             
-                            NotificationHelper.showGeofenceCheckoutNotification(context, storeObj?.displayName ?: storeName, id.toInt(), storeId)
+                            NotificationHelper.showGeofenceCheckoutNotification(context, storeObj?.displayName ?: storeName, id.toInt())
                         } catch (e: Exception) {
                             Log.e("GeofenceReceiver", "Error saving checkout: ${e.message}")
                         }

@@ -99,13 +99,6 @@ class MainActivity : FragmentActivity() {
                         }
                     } else if (intent?.action == "ACTION_REFRESH_ACTIVE_SESSIONS") {
                         viewModel.refreshActiveSessions()
-                    } else if (intent?.action == "ACTION_MUTE_STORE") {
-                        val storeId = intent.getIntExtra("store_id", 0)
-                        val storeName = intent.getStringExtra("store_name") ?: ""
-                        val notificationId = intent.getIntExtra("notification_id", -1)
-                        if (storeId != 0) {
-                            viewModel.showMuteStoreDialog(storeId, storeName, notificationId)
-                        }
                     }
                 }
 
@@ -246,23 +239,6 @@ class MainActivity : FragmentActivity() {
                     com.example.ui.screens.GlobalSettingsDialog(
                         viewModel = viewModel,
                         onDismiss = { viewModel.showLocalAiSettingsDialog.value = false }
-                    )
-                }
-
-                // Show Mute Dialog
-                val showMuteDialog by viewModel.showMuteStoreDialogState.collectAsState()
-                val muteStoreId by viewModel.muteStoreIdState.collectAsState()
-                val muteStoreName by viewModel.muteStoreNameState.collectAsState()
-                val muteNotificationId by viewModel.muteNotificationIdState.collectAsState()
-                if (showMuteDialog && muteStoreId != 0) {
-                    com.example.ui.screens.MuteStoreDialog(
-                        storeId = muteStoreId,
-                        storeName = muteStoreName,
-                        notificationId = muteNotificationId,
-                        onDismiss = { viewModel.hideMuteStoreDialog() },
-                        onConfirm = { reason, customComment ->
-                            viewModel.muteStore(muteStoreId, reason, customComment, muteNotificationId)
-                        }
                     )
                 }
 

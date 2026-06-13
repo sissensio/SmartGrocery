@@ -38,6 +38,8 @@ fun StoresScreen(
     modifier: Modifier = Modifier
 ) {
     val stores by viewModel.allStores.collectAsState()
+    val ledgerEntries by viewModel.ledgerEntries.collectAsState()
+    val pendingReceipts by viewModel.pendingReceipts.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
     
     // Store detail / Edit modal state
@@ -50,11 +52,29 @@ fun StoresScreen(
     var editLat by remember { mutableStateOf<Double?>(null) }
     var editLng by remember { mutableStateOf<Double?>(null) }
 
-    val filteredStores = remember(stores, searchQuery) {
+    val filteredStores = remember(stores, searchQuery, ledgerEntries, pendingReceipts) {
+        val validStores = stores.filter { store ->
+            val isLocal = !store.isCertified
+            
+            val inLedger = ledgerEntries.any { entry ->
+                val desc = entry.description.lowercase(Locale.getDefault())
+                desc.contains(store.name) || 
+                (store.displayName != null && desc.contains(store.displayName.lowercase(Locale.getDefault())))
+            }
+            
+            val inPending = pendingReceipts.any { pr ->
+                pr.storeId == store.id || 
+                pr.storeName.lowercase(Locale.getDefault()).trim() == store.name || 
+                (store.displayName != null && pr.storeName.lowercase(Locale.getDefault()).trim() == store.displayName.lowercase(Locale.getDefault()).trim())
+            }
+            
+            isLocal || inLedger || inPending
+        }
+
         if (searchQuery.isBlank()) {
-            stores
+            validStores
         } else {
-            stores.filter { 
+            validStores.filter { 
                 it.name.contains(searchQuery, ignoreCase = true) || 
                 (it.displayName?.contains(searchQuery, ignoreCase = true) == true) || 
                 (it.vatNumber?.contains(searchQuery) == true)
