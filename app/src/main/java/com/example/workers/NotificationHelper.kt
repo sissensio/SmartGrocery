@@ -13,7 +13,7 @@ object NotificationHelper {
     private const val CHANNEL_ID = "geofence_channel"
     private const val SYS_CHANNEL_ID = "system_channel"
 
-    fun showGeofenceCheckoutNotification(context: Context, storeName: String, pendingReceiptId: Int) {
+    fun showGeofenceCheckoutNotification(context: Context, storeName: String, pendingReceiptId: Int, storeId: Int) {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -40,13 +40,26 @@ object NotificationHelper {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Broadcast intent for DOPO (dismissing the notification but keeping the pending receipt)
-        // Since we already created the PendingReceipt in DB, "DOPO" just dismisses the notification.
-        // We can just use standard cancellation or add an explicit action if we want to log it, but standard swipe is enough.
+        // Broadcast intent for DOPO
         val dismissIntent = Intent(context, NotificationDismissReceiver::class.java).apply {
             action = "ACTION_DOPO_DISMISS"
             putExtra("notification_id", pendingReceiptId)
         }
+
+        // Mute intent for NON NOTIFICARE
+        val intentMute = Intent(context, MainActivity::class.java).apply {
+            action = "ACTION_MUTE_STORE"
+            putExtra("store_id", storeId)
+            putExtra("store_name", storeName)
+            putExtra("notification_id", pendingReceiptId)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val pendingIntentMute = PendingIntent.getActivity(
+            context,
+            pendingReceiptId + 2000,
+            intentMute,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(com.example.R.drawable.ic_launcher_foreground)
@@ -55,9 +68,9 @@ object NotificationHelper {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .addAction(android.R.drawable.ic_menu_camera, "SÌ", pendingIntentSi)
-            // DOPO just cancels the notification, the receipt is already in DB
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "DOPO", 
                 PendingIntent.getBroadcast(context, pendingReceiptId + 1000, dismissIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "NON NOTIFICARE", pendingIntentMute)
             .build()
 
         notificationManager.notify(pendingReceiptId, notification)

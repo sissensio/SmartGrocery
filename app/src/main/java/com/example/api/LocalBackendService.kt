@@ -266,10 +266,18 @@ data class ShrinkflationAlertResponse(
 )
 
 @JsonClass(generateAdapter = true)
+data class StoreMuteSyncDto(
+    @Json(name = "store_id") val storeId: Int,
+    @Json(name = "reason") val reason: String,
+    @Json(name = "custom_comment") val customComment: String? = null
+)
+
+@JsonClass(generateAdapter = true)
 data class SyncRequest(
     @Json(name = "device_uuid") val deviceUuid: String,
     @Json(name = "pending_ledger_entries") val pendingLedgerEntries: List<LedgerSubmitRequest>,
-    @Json(name = "pending_notification_acks") val pendingNotificationAcks: List<Int>
+    @Json(name = "pending_notification_acks") val pendingNotificationAcks: List<Int>,
+    @Json(name = "pending_store_mutes") val pendingStoreMutes: List<StoreMuteSyncDto> = emptyList()
 )
 
 @JsonClass(generateAdapter = true)
@@ -277,9 +285,51 @@ data class SyncResponse(
     @Json(name = "server_timestamp") val serverTimestamp: String,
     @Json(name = "synced_ledger_uuids") val syncedLedgerUuids: List<String>,
     @Json(name = "synced_notification_acks") val syncedNotificationAcks: List<Int>,
+    @Json(name = "synced_store_mutes") val syncedStoreMutes: List<Int> = emptyList(),
     @Json(name = "new_notifications") val newNotifications: List<BackendNotification>,
     @Json(name = "device_status") val deviceStatus: DeviceStatusDto
 )
+
+@JsonClass(generateAdapter = true)
+data class StoreReportRequest(
+    @Json(name = "name") val name: String,
+    @Json(name = "display_name") val displayName: String? = null,
+    @Json(name = "address") val address: String? = null,
+    @Json(name = "city") val city: String? = null,
+    @Json(name = "province") val province: String? = null,
+    @Json(name = "latitude") val latitude: Double,
+    @Json(name = "longitude") val longitude: Double,
+    @Json(name = "store_type") val storeType: String = "SUPERMARKET"
+)
+
+@JsonClass(generateAdapter = true)
+data class NominatimAddress(
+    @Json(name = "road") val road: String? = null,
+    @Json(name = "house_number") val houseNumber: String? = null,
+    @Json(name = "city") val city: String? = null,
+    @Json(name = "town") val town: String? = null,
+    @Json(name = "village") val village: String? = null,
+    @Json(name = "county") val county: String? = null,
+    @Json(name = "state") val state: String? = null,
+    @Json(name = "country") val country: String? = null,
+    @Json(name = "country_code") val countryCode: String? = null,
+    @Json(name = "shop") val shop: String? = null,
+    @Json(name = "amenity") val amenity: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class NominatimResponse(
+    @Json(name = "display_name") val displayName: String? = null,
+    @Json(name = "address") val address: NominatimAddress? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class ClosestStoreResponseWrapper(
+    @Json(name = "found") val found: Boolean,
+    @Json(name = "source") val source: String,
+    @Json(name = "store") val store: ClosestStoreResponse
+)
+
 
 @JsonClass(generateAdapter = true)
 data class ItemResponseDto(
@@ -1176,13 +1226,83 @@ object LocalBackendServiceClient {
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
                     val raw = response.body?.string() ?: return@withContext null
-                    return@withContext moshi.adapter(ClosestStoreResponse::class.java).fromJson(raw)
+                    val wrapper = moshi.adapter(ClosestStoreResponseWrapper::class.java).fromJson(raw)
+                    return@withContext wrapper?.store
                 }
                 Log.e("LocalBackendService", "getClosestStore returned HTTP ${response.code}")
                 return@withContext null
             }
         } catch (e: Exception) {
             Log.e("LocalBackendService", "Errore in getClosestStore", e)
+            return@withContext null
+        }
+    }
+
+    suspend fun queryNominatimForStore(latitude: Double, longitude: Double): ClosestStoreResponse? = withContext(Dispatchers.IO) {
+        val url = "https://nominatim.openstreetmap.org/reverse?format=json&lat=$latitude&lon=$longitude&zoom=18&addressdetails=1"
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "SmartGroceryManager-AndroidFallback/1.0.0 (sissensio@gmail.com)")
+            .get()
+            .build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@withContext null
+                val bodyStr = response.body?.string() ?: return@withContext null
+                val res = moshi.adapter(NominatimResponse::class.java).fromJson(bodyStr) ?: return@withContext null
+                val addr = res.address
+                val brandName = addr?.shop ?: addr?.amenity ?: addr?.road ?: "Supermercato"
+                val street = addr?.road ?: ""
+                val houseNumber = addr?.houseNumber ?: ""
+                val fullStreet = if (houseNumber.isNotBlank()) "$street $houseNumber" else street
+                val city = addr?.city ?: addr?.town ?: addr?.village ?: "N/D"
+                val provinceRaw = addr?.county ?: "N/D"
+                val province = if (provinceRaw.lowercase().startsWith("provincia di ")) {
+                    provinceRaw.lowercase().replace("provincia di ", "").trim().uppercase()
+                } else {
+                    provinceRaw.uppercase()
+                }
+                
+                return@withContext ClosestStoreResponse(
+                    id = null,
+                    name = brandName,
+                    displayName = brandName,
+                    vatNumber = null,
+                    address = if (fullStreet.isBlank()) "N/D" else fullStreet,
+                    city = city,
+                    province = province,
+                    latitude = latitude,
+                    longitude = longitude,
+                    geofenceRadius = 100f,
+                    isCertified = false
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("LocalBackendService", "Nominatim geocoding failed: ${e.message}")
+            return@withContext null
+        }
+    }
+
+    suspend fun reportStoreOnServer(token: String?, report: StoreReportRequest): ClosestStoreResponse? = withContext(Dispatchers.IO) {
+        if (!isHostConfigured()) return@withContext null
+        val url = "${getBaseUrl()}/api/v1/sync/stores/report"
+        val json = moshi.adapter(StoreReportRequest::class.java).toJson(report)
+        val reqBuilder = Request.Builder().url(url)
+        if (token != null) {
+            reqBuilder.header("Authorization", "Bearer $token")
+        }
+        val request = reqBuilder.post(json.toRequestBody("application/json".toMediaType())).build()
+        try {
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val raw = response.body?.string() ?: return@withContext null
+                    return@withContext moshi.adapter(ClosestStoreResponse::class.java).fromJson(raw)
+                }
+                Log.e("LocalBackendService", "reportStoreOnServer returned HTTP ${response.code}")
+                return@withContext null
+            }
+        } catch (e: Exception) {
+            Log.e("LocalBackendService", "Errore in reportStoreOnServer", e)
             return@withContext null
         }
     }

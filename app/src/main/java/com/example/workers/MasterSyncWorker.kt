@@ -31,6 +31,7 @@ class MasterSyncWorker(
             
             val unsyncedLedgers = dao.getUnsyncedLedgerEntries()
             val unsyncedAcks = dao.getUnsyncedNotificationAcks()
+            val unsyncedMutes = dao.getUnsyncedMutedStores()
 
             val prefs = applicationContext.getSharedPreferences("smart_grocery_prefs", Context.MODE_PRIVATE)
             val token = prefs.getString("user_token", null)
@@ -39,6 +40,35 @@ class MasterSyncWorker(
             if (token.isNullOrBlank()) {
                 Log.d("MasterSyncWorker", "No auth token found, aborting sync")
                 return@withContext Result.success()
+            }
+
+            // Sync offline-queued PendingStoreReports
+            try {
+                val pendingStoreReports = dao.getUnsyncedStoreReports()
+                if (pendingStoreReports.isNotEmpty()) {
+                    Log.d("MasterSyncWorker", "Found ${pendingStoreReports.size} pending store reports to sync")
+                    for (report in pendingStoreReports) {
+                        val req = com.example.api.StoreReportRequest(
+                            name = report.name,
+                            displayName = report.displayName,
+                            address = report.address,
+                            city = report.city,
+                            province = report.province,
+                            latitude = report.latitude,
+                            longitude = report.longitude,
+                            storeType = report.storeType
+                        )
+                        val res = LocalBackendServiceClient.reportStoreOnServer(token, req)
+                        if (res != null) {
+                            dao.deletePendingStoreReport(report.id)
+                            Log.d("MasterSyncWorker", "Successfully synced pending store report: ${report.name}")
+                        } else {
+                            Log.e("MasterSyncWorker", "Failed to sync pending store report: ${report.name}")
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MasterSyncWorker", "Error syncing pending store reports", e)
             }
 
             // Sync offline-queued PendingCatalogItems
@@ -109,11 +139,19 @@ class MasterSyncWorker(
             }
             
             val ackIds = unsyncedAcks.map { it.notificationId }
+            val muteRequests = unsyncedMutes.map { mute ->
+                com.example.api.StoreMuteSyncDto(
+                    storeId = mute.storeId,
+                    reason = mute.reason,
+                    customComment = mute.customComment
+                )
+            }
             
             val syncRequest = SyncRequest(
                 deviceUuid = deviceUuid,
                 pendingLedgerEntries = ledgerRequests,
-                pendingNotificationAcks = ackIds
+                pendingNotificationAcks = ackIds,
+                pendingStoreMutes = muteRequests
             )
             
             val response = LocalBackendServiceClient.performUnifiedSync(token, syncRequest)
@@ -130,6 +168,13 @@ class MasterSyncWorker(
                 // Delete successfully synced acks
                 if (response.syncedNotificationAcks.isNotEmpty()) {
                     dao.deleteSyncedNotificationAcks(response.syncedNotificationAcks)
+                }
+
+                // Mark successfully synced mutes
+                if (response.syncedStoreMutes.isNotEmpty()) {
+                    for (storeId in response.syncedStoreMutes) {
+                        dao.markMutedStoreSynced(storeId)
+                    }
                 }
                 
                 // Insert new notifications into local Room DB

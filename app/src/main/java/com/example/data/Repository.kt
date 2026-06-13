@@ -80,4 +80,16 @@ class GroceryRepository(private val dao: GroceryDao) {
         dao.deleteAllShoppingLists()
         dao.insertShoppingLists(lists)
     }
+
+    // --- Muted Stores ---
+    suspend fun insertMutedStore(mute: MutedStoreLocal): Long = dao.insertMutedStore(mute)
+    suspend fun getUnsyncedMutedStores(): List<MutedStoreLocal> = dao.getUnsyncedMutedStores()
+    suspend fun markMutedStoreSynced(storeId: Int) = dao.markMutedStoreSynced(storeId)
+    suspend fun getAllMutedStoreIds(): List<Int> = dao.getAllMutedStoreIds()
+    suspend fun isStoreMuted(storeId: Int): Boolean = dao.isStoreMuted(storeId)
+
+    // --- Pending Store Reports ---
+    suspend fun insertPendingStoreReport(report: PendingStoreReport): Long = dao.insertPendingStoreReport(report)
+    suspend fun getUnsyncedStoreReports(): List<PendingStoreReport> = dao.getUnsyncedStoreReports()
+    suspend fun deletePendingStoreReport(id: Int) = dao.deletePendingStoreReport(id)
 }

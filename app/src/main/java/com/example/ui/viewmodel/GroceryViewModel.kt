@@ -49,6 +49,11 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
     // Dialog / error for Transaction Limit Exceeded (HTTP 403)
     val transactionLimitAlertMessage = MutableStateFlow<String?>(null)
     
+    val showMuteStoreDialogState = MutableStateFlow(false)
+    val muteStoreIdState = MutableStateFlow(0)
+    val muteStoreNameState = MutableStateFlow("")
+    val muteNotificationIdState = MutableStateFlow(-1)
+    
     val notificationsList: StateFlow<List<com.example.api.BackendNotification>> = repository.unreadNotifications
         .map { list -> list.map { it.toApiModel() } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -1816,9 +1821,55 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
                     val token = userToken.value ?: getApplication<Application>()
                         .getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE)
                         .getString("user_token", null)
-                    closestStore = com.example.api.LocalBackendServiceClient.getClosestStore(token, currentLat, currentLng)
-                    if (closestStore != null) {
-                        Log.d(TAG, "Found closest store from backend matching location within 50m: ${closestStore.displayName}")
+                    try {
+                        closestStore = com.example.api.LocalBackendServiceClient.getClosestStore(token, currentLat, currentLng)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "getClosestStore failed: ${e.message}")
+                    }
+                    if (closestStore == null) {
+                        try {
+                            closestStore = com.example.api.LocalBackendServiceClient.queryNominatimForStore(currentLat, currentLng)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "queryNominatimForStore failed: ${e.message}")
+                        }
+                    }
+                    if (closestStore != null && closestStore.id == null) {
+                        // Cache in local Room db
+                        val localStore = com.example.data.StoreInfo(
+                            name = closestStore.name.lowercase().trim(),
+                            displayName = closestStore.displayName,
+                            vatNumber = closestStore.vatNumber,
+                            address = closestStore.address,
+                            phone = closestStore.phone,
+                            latitude = closestStore.latitude,
+                            longitude = closestStore.longitude,
+                            geofenceRadius = closestStore.geofenceRadius,
+                            isCertified = false,
+                            lastSeen = System.currentTimeMillis()
+                        )
+                        try {
+                            val generatedId = repository.insertStore(localStore)
+                            closestStore = closestStore.copy(id = generatedId.toInt())
+                            
+                            // Queue background sync report
+                            val pendingReport = com.example.data.PendingStoreReport(
+                                name = localStore.name,
+                                displayName = localStore.displayName,
+                                address = localStore.address,
+                                city = "N/D",
+                                province = "N/D",
+                                latitude = localStore.latitude ?: 0.0,
+                                longitude = localStore.longitude ?: 0.0,
+                                storeType = "SUPERMARKET"
+                            )
+                            repository.insertPendingStoreReport(pendingReport)
+                            enqueueMasterSync()
+                            Log.d(TAG, "New store cached locally and sync report queued: ${localStore.displayName} (Local ID: $generatedId)")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error caching new store locally: ${e.message}")
+                        }
+                    } else if (closestStore != null) {
+                        Log.d(TAG, "Found closest store matching location: ${closestStore.displayName} (ID: ${closestStore.id})")
                     }
                 }
 
@@ -2246,7 +2297,7 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun triggerSimulatedGeofenceExit(storeName: String) {
+    fun triggerGeofenceSimulation(storeName: String) {
         viewModelScope.launch {
             // 1. Send CHECK_OUT telemetry
             val token = getApplication<Application>().getSharedPreferences("smart_grocery_prefs", android.content.Context.MODE_PRIVATE).getString("user_token", null)
@@ -2256,15 +2307,55 @@ class GroceryViewModel(application: Application) : AndroidViewModel(application)
             }
             
             // 2. Create the Pending Receipt
+            val storeObj = repository.getStoreByName(storeName)
+            val storeId = storeObj?.id ?: 0
             val pReceipt = PendingReceipt(
                 storeName = storeName,
                 location = "Rilevato via geofence",
-                timestamp = System.currentTimeMillis()
+                timestamp = System.currentTimeMillis(),
+                storeId = storeId
             )
             val id = repository.insertPendingReceipt(pReceipt)
             
             // 3. Show System Notification
-            com.example.workers.NotificationHelper.showGeofenceCheckoutNotification(getApplication<Application>(), storeName, id.toInt())
+            com.example.workers.NotificationHelper.showGeofenceCheckoutNotification(getApplication<Application>(), storeName, id.toInt(), storeId)
+        }
+    }
+
+    fun showMuteStoreDialog(storeId: Int, storeName: String, notificationId: Int = -1) {
+        muteStoreIdState.value = storeId
+        muteStoreNameState.value = storeName
+        muteNotificationIdState.value = notificationId
+        showMuteStoreDialogState.value = true
+    }
+
+    fun hideMuteStoreDialog() {
+        showMuteStoreDialogState.value = false
+        muteStoreIdState.value = 0
+        muteStoreNameState.value = ""
+        muteNotificationIdState.value = -1
+    }
+
+    fun muteStore(storeId: Int, reason: String, customComment: String?, notificationId: Int = -1) {
+        viewModelScope.launch {
+            try {
+                val mute = com.example.data.MutedStoreLocal(
+                    storeId = storeId,
+                    reason = reason,
+                    customComment = customComment,
+                    isSynced = false
+                )
+                repository.insertMutedStore(mute)
+                
+                if (notificationId != -1) {
+                    repository.deletePendingReceiptById(notificationId)
+                }
+                
+                hideMuteStoreDialog()
+                enqueueMasterSync()
+            } catch (e: Exception) {
+                Log.e("MuteStore", "Error muting store $storeId: ${e.message}")
+            }
         }
     }
 
